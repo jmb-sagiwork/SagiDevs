@@ -1,0 +1,241 @@
+import pyautogui
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.edge.service import Service
+from selenium.webdriver.support import expected_conditions as EC
+from datetime import datetime, date, timedelta
+
+
+import time
+import sys
+import win32com.client
+# from openpyxl import load_workbook
+
+options = Options()
+Options.use_chromium = True
+
+# driver = webdriver.Edge(options=options)
+# actions = ActionChains(driver)
+service = Service(r"\\WDCNAPVS590.internal.cigna.com\xdhome2$\C9K6FW\Documents\Edge\msedgedriver.exe")
+driver = webdriver.Edge(service=service)
+
+driver.get('https://csanp-prd.healthcare.cigna.com/networx-webui/')
+driver.implicitly_wait(20)
+driver.maximize_window()
+time.sleep(15)
+
+# === Converted from AHK v2 globals ===
+Excel = win32com.client.GetActiveObject("Excel.Application")
+xl  = Excel.ActiveWorkbook
+
+cli = xl.Sheets("Claim Line Item")
+cl  = xl.Sheets("Claim List")
+pl  = xl.Sheets("Plan Checker")
+ci  = xl.Sheets("Claim Information")
+dx  = xl.Sheets("DX Codes")
+cr  = xl.Sheets("Credentials")
+pycr = xl.Sheets("Python Control Room")
+cv = xl.Sheets("Code Value")
+
+rowToProcess = int(pycr.Range("B4").Value)
+# =====================================
+driver.switch_to.default_content()
+# driver.switch_to.frame("LeftPanel")
+# =====================================
+
+def wait_for_element(driver, locator_type: int, locator: str, timeout: int = 10):
+    """
+    locator_type (int):
+        1 = XPATH
+        2 = ID
+        3 = NAME
+        4 = CSS
+        5 = TAG
+    """
+    # === CASE: locator type ===
+    if locator_type == 1:
+        by = By.XPATH
+    elif locator_type == 2:
+        by = By.ID
+    elif locator_type == 3:
+        by = By.NAME
+    elif locator_type == 4:
+        by = By.CSS_SELECTOR
+    elif locator_type == 5:
+        by = By.TAG_NAME
+    else:
+        raise ValueError(f"Unsupported locator_type code: {locator_type}")
+
+    return WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located((by, locator))
+    )
+
+
+def element_action(driver,
+                   locator_type: int,
+                   locator: str,
+                   action: int,
+                   value: str | None = None,
+                   timeout: int = 10):
+    """
+    locator_type (int):
+        1 = XPATH
+        2 = ID
+        3 = NAME
+        4 = CSS
+        5 = TAG
+
+    action (int):
+        1 = click
+        2 = send_keys
+        3 = select by visible text   (combo box)
+        4 = select by value          (combo box)
+        5 = select by index          (combo box)
+    """
+    elem = wait_for_element(driver, locator_type, locator, timeout)
+
+    # === CASE: action type ===
+    if action == 1:          # click
+        elem.click()
+
+    elif action == 2:        # send_keys
+        if value is None:
+            raise ValueError("value is required for send_keys")
+        elem.clear()
+        elem.send_keys(value)
+
+    elif action == 3:        # select by visible text
+        if value is None:
+            raise ValueError("value is required for select by text")
+        Select(elem).select_by_visible_text(value)
+
+    elif action == 4:        # select by value
+        if value is None:
+            raise ValueError("value is required for select by value")
+        Select(elem).select_by_value(value)
+
+    elif action == 5:        # select by index
+        if value is None:
+            raise ValueError("value is required for select by index")
+        Select(elem).select_by_index(int(value))
+
+    else:
+        raise ValueError(f"Unsupported action code: {action}")
+
+    return elem
+
+
+def get_cell_str(sheet, addr: str) -> str:
+    """
+    Read any Excel cell as a trimmed string.
+    - None / empty -> ""
+    - Integer-ish numbers (e.g. 253834000000.0) -> "253834000000"
+    - Other types -> normal string
+    """
+    v = sheet.Range(addr).Value
+    if v is None:
+        return ""
+
+    # Excel often returns floats for numeric cells
+    if isinstance(v, float):
+        # If it's effectively an integer, drop the .0 and any scientific notation
+        if v.is_integer():
+            return str(int(v))
+        else:
+            # Non-integer float: just use normal string, no custom formatting
+            return str(v).strip()
+
+    # Plain int
+    if isinstance(v, int):
+        return str(v)
+
+    # Everything else (actual text, dates-as-strings, etc.)
+    return str(v).strip()
+
+def get_date_mdy(sheet, addr: str) -> str:
+    """
+    Read an Excel cell as a date and return 'mm/dd/yyyy'.
+    Returns '' if cell is empty.
+    Handles:
+      - real datetime/date objects
+      - Excel serial numbers (float/int)
+      - ISO-like strings (e.g. '2025-11-03 00:00:00+00:00')
+    """
+    v = sheet.Range(addr).Value
+    if v is None:
+        return ""
+
+    # Real datetime/date from COM
+    if isinstance(v, (datetime, date)):
+        return v.strftime("%m/%d/%Y")
+
+    # Excel serial number (e.g. 45500.0)
+    if isinstance(v, (float, int)):
+        base = datetime(1899, 12, 30)  # Excel date origin (Windows)
+        d = base + timedelta(days=float(v))
+        return d.strftime("%m/%d/%Y")
+
+    # String – try to parse ISO, fall back to raw string
+    s = str(v)
+    try:
+        d = datetime.fromisoformat(s.replace("Z", ""))
+        return d.strftime("%m/%d/%Y")
+    except ValueError:
+        return s  # last resort
+    
+def get_rows_for_type(sheet, type_name: str):
+    rows = []
+    last_row = sheet.Cells(sheet.Rows.Count, "A").End(-4162).Row  # xlUp
+
+    for r in range(2, last_row + 1):
+        cell_val = sheet.Range(f"A{r}").Value
+        if cell_val is None:
+            continue
+        if str(cell_val).strip() == type_name:
+            rows.append(r)
+
+    return rows
+
+def process_type_of_data(dx_sheet, type_name, driver, xpath_value, xpath_remarks=None):
+    """
+    dx_sheet    : Excel sheet that has the Type of Data table (dx)
+    type_name   : e.g. "Primary DX", "DX Codes", "Principal CPT Codes"
+    xpath_value : xpath where the VALUE (col B) should be sent
+    xpath_remarks : xpath where REMARKS (col C) should be sent (optional)
+    """
+
+    rows = get_rows_for_type(dx_sheet, type_name)
+
+    for r in rows:
+        # read Excel cells
+        val = str(dx_sheet.Range(f"B{r}").Value or "").strip()
+        rem = str(dx_sheet.Range(f"C{r}").Value or "").strip()
+
+        # send VALUE if not blank
+        if val:
+            send_optional_input(driver, xpath_value, val)
+
+        # send REMARKS (if xpath given AND not blank)
+        if xpath_remarks and rem:
+            send_optional_input(driver, xpath_remarks, rem)
+
+
+def send_optional_input(driver, xpath: str, value, timeout: int = 10):
+    """
+    If value is blank/None -> do nothing.
+    Otherwise use element_action to send_keys.
+    locator_type = 1 (XPATH)
+    action       = 2 (send_keys)
+    """
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return  # skip if blank
+
+    element_action(driver, 1, xpath, 2, text, timeout)
+    # time.sleep(2)
