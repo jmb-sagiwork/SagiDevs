@@ -239,3 +239,8 @@ def send_optional_input(driver, xpath: str, value, timeout: int = 10):
 
     element_action(driver, 1, xpath, 2, text, timeout)
     # time.sleep(2)
+
+# start here
+driver.get('https://csanp-prd.healthcare.cigna.com/networx-webui/#claimsapp')
+driver.implicitly_wait(5)
+time.sleep(5)
