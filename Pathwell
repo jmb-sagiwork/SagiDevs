@@ -1,4 +1,4 @@
-
+#Include %A_ScriptDir%\FindText.ahk
 #Persistent
 #SingleInstance Force
 #NoEnv
