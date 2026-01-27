@@ -271,6 +271,11 @@ element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-se
 element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-search/div/div[2]/tc-tab-group/div/tc-tab-body/div/div/tc-member-search-form/div/div/form/div[2]/div/button[1]", 1, 10)
 time.sleep(5)
 element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-search/div/div[2]/tc-tab-group/div/tc-tab-body/div/div/tc-member-search-form/div/div/tc-member-results-table/div/div[2]/tc-data-matrix/div/div[2]/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div/div[1]/tc-grid-name-cell/span", 1, 10)
+
+#get the number of Auth
+element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label",6, 10)
+
+# click Authorizations
 element_action(driver, 1 , "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-member-dashboard/article/div/tc-member-dashboard-items/section/tc-member-authorization-pod/tc-pod-grid/tc-widget/div/div[1]/div/div/div", 1, 10)
 element_action(driver)
 print("Done")
