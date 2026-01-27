@@ -281,25 +281,40 @@ print("Auth count:", auth_count)
 # click Authorizations
 element_action(driver, 1 , "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-member-dashboard/article/div/tc-member-dashboard-items/section/tc-member-authorization-pod/tc-pod-grid/tc-widget/div/div[1]/div/div/div", 1, 10)
 
-# loop for Row
-# for x in range(1, auth_count_num + 1):
-#     print("Auth row:" x)
-z = 1
-for x in range(auth_count_num):
-    print(x)
-    z = z + 1
+# Column indexes (adjust if UI changes)
+COL_FROM_DATE = 2
+COL_TO_DATE   = 3
+COL_DIAGNOSIS = 6   # choose main diagnosis column
+COL_STATUS    = 7
 
-# get From Date, To Date, Diagnosis and Status
-for y in 4:
-    from_date = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
-    to_date = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
-    tc_dx = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
-    tc_status = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
+start_excel_row = 6
 
-    tc.range("A6").Value = from_date
-    tc.range("B6").Value = to_date
-    tc.range("C6").Value = tc_dx
-    tc.range("D6").Value = tc_status
-    print("Current Column" + y)
+# XPath template
+ROW_XPATH = (
+    "/html/body/tc-app/div/div/tc-main/div[1]/"
+    "tc-member-workspace-layout/div/div/div[2]/div/"
+    "tc-um-authorization/div/div[2]/tc-tab-group-new/div/"
+    "div[2]/tc-tab-content-new/div/tc-summary/div/div/div/"
+    "tc-summary-detail/tc-grid-control/div/div[2]/"
+    "tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/"
+    "div[2]/div[3]/div[2]/div/div/div[{row}]/div[{col}]/"
+    "tc-grid-cell-text-renderer-component/div/label"
+)
+
+for row in range(1, auth_count_num + 1):
+
+    from_date = element_action(driver, 1, ROW_XPATH.format(row=row, col=COL_FROM_DATE), 6, 10)
+    to_date   = element_action(driver, 1, ROW_XPATH.format(row=row, col=COL_TO_DATE), 6, 10)
+    diagnosis = element_action(driver, 1, ROW_XPATH.format(row=row, col=COL_DIAGNOSIS), 6, 10)
+    status    = element_action(driver, 1, ROW_XPATH.format(row=row, col=COL_STATUS), 6, 10)
+
+    # Write to Excel
+    excel_row = start_excel_row + row - 1
+    tc.Cells(excel_row, 1).Value = from_date
+    tc.Cells(excel_row, 2).Value = to_date
+    tc.Cells(excel_row, 3).Value = diagnosis
+    tc.Cells(excel_row, 4).Value = status
+
+    print(f"Row {row}: {from_date} | {to_date} | {diagnosis} | {status}")
 
 print("Done")
