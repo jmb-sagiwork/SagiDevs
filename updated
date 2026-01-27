@@ -273,12 +273,33 @@ element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-se
 time.sleep(5)
 element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-search/div/div[2]/tc-tab-group/div/tc-tab-body/div/div/tc-member-search-form/div/div/tc-member-results-table/div/div[2]/tc-data-matrix/div/div[2]/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div/div[1]/tc-grid-name-cell/span", 1, 10)
 
-#get the number of Auth
-element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label",6, 10)
+# get the number of Auth
+auth_count = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-member-dashboard/article/div/tc-member-dashboard-items/section/tc-member-authorization-pod/tc-pod-grid/tc-widget/div/div[1]/h3/tc-dynamic-overflow-tool-tip-wrapper/button/span/span", 6, 10)
 auth_count_num = int(re.search(r"\d+", auth_count).group())
 print("Auth count:", auth_count)
 
 # click Authorizations
 element_action(driver, 1 , "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-member-dashboard/article/div/tc-member-dashboard-items/section/tc-member-authorization-pod/tc-pod-grid/tc-widget/div/div[1]/div/div/div", 1, 10)
-element_action(driver)
+
+# loop for Row
+# for x in range(1, auth_count_num + 1):
+#     print("Auth row:" x)
+z = 1
+for x in range(auth_count_num):
+    print(x)
+    z = z + 1
+
+# get From Date, To Date, Diagnosis and Status
+for y in 4:
+    from_date = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
+    to_date = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
+    tc_dx = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
+    tc_status = element_action(driver, 1, "/html/body/tc-app/div/div/tc-main/div[1]/tc-member-workspace-layout/div/div/div[2]/div/tc-um-authorization/div/div[2]/tc-tab-group-new/div/div[2]/tc-tab-content-new/div/tc-summary/div/div/div/tc-summary-detail/tc-grid-control/div/div[2]/tc-grid-aggrid/div/div/ag-grid-angular/div/div[2]/div[2]/div[3]/div[2]/div/div/div[{x}]/div[{y}]/tc-grid-cell-text-renderer-component/div/label", 6, 10)
+
+    tc.range("A6").Value = from_date
+    tc.range("B6").Value = to_date
+    tc.range("C6").Value = tc_dx
+    tc.range("D6").Value = tc_status
+    print("Current Column" + y)
+
 print("Done")
