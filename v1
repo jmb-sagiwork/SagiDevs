@@ -1,0 +1,8 @@
+hippaScript := "\\internal.cigna.com\EUHF$\rep\OFFSHORE\HOME17$\C8W9P2\Documents\Pathwell\Trucare_Migs1.py"
+pythonExe  := "C:\Users\C8W9P2\AppData\Local\Programs\Python\Python314\python.exe"   ; must be python.exe, not .py
+
+; build:  "python.exe" "script.py"
+cmdHippa := """" . pythonExe . """ """ . hippaScript . """"
+
+AddToLog("Running HIPAA Gateway")
+RunWait, % cmdHippa
