@@ -1,0 +1,255 @@
+#SingleInstance Force
+Persistent true
+SetBatchLines -1
+SendMode "Input"
+
+; =========================
+; Global IDs
+; =========================
+pid := 20132
+id  := 264086
+
+; =========================
+; Excel COM Initialization
+; =========================
+if !WinExist("ahk_exe EXCEL.EXE") {
+    MsgBox "Excel is not running. Please open the workbook."
+    ExitApp
+}
+
+try {
+    oExcel    := ComObjActive("Excel.Application")
+    oWorkbook := oExcel.ActiveWorkbook
+    oSheet    := oWorkbook.ActiveSheet
+
+    oSheet2 := oWorkbook.Sheets("Query")
+    oSheet3 := oWorkbook.Sheets("Pricing Table")
+    oSheet4 := oWorkbook.Sheets("POS")
+    oSheet6 := oWorkbook.Sheets("Evicore")
+    oSheet7 := oWorkbook.Sheets("J9035")
+    oSheet8 := oWorkbook.Sheets("Overlap")
+}
+catch as err {
+    MsgBox "Excel COM Error:`n" err.Message
+    ExitApp
+}
+
+RowCounter := oExcel.WorksheetFunction.CountA(oSheet.Range("K:K"))
+
+; =========================
+; MAIN ROW LOOP
+; =========================
+Row := 2
+
+Loop RowCounter
+{
+    DCN := oSheet.Range("K" Row).Value
+
+    if (DCN = "") {
+        Row++
+        continue
+    }
+
+    ; -------------------------
+    ; Reset per-row variables
+    ; -------------------------
+    entityResult := ""
+    errNotes     := ""
+    statusDesc   := ""
+    cpsResult    := ""
+    umResult     := ""
+    procCode     := ""
+
+    allowedAmt := 0
+    paidAmt    := 0
+    cpsEligible := false
+    j9035Flag   := false
+
+    A_Clipboard := ""
+
+    ; =========================
+    ; Citrix Activation
+    ; =========================
+    if WinExist("ahk_exe wfica32.exe") {
+        WinActivate("ahk_exe wfica32.exe")
+        WinWaitActive("ahk_exe wfica32.exe", , 5)
+        if !WinActive("ahk_exe wfica32.exe") {
+            errNotes := "Citrix activation failed"
+            goto WRITE_RESULTS
+        }
+    } else {
+        MsgBox "Citrix (wfica32.exe) not running."
+        ExitApp
+    }
+
+    ; =========================
+    ; Claim Search (DCN)
+    ; =========================
+    Send "^o"
+    Sleep 600
+    Send "^a"
+    Sleep 150
+    Send "{Delete}"
+    Sleep 150
+    A_Clipboard := DCN
+    Send "^v"
+    Sleep 200
+    Send "{Enter}"
+    Sleep 1200
+
+    ; =========================
+    ; POS / Entity Detection
+    ; =========================
+    Send "{Tab 5}"
+    Sleep 300
+    Send "^c"
+    Sleep 200
+
+    posValue := StrUpper(Trim(A_Clipboard))
+    A_Clipboard := ""
+
+    if (posValue = "11" || posValue = "22") {
+        entityResult := "PROFESSIONAL"
+    }
+    else if (posValue = "21" || posValue = "23") {
+        entityResult := "INSTITUTIONAL"
+    }
+    else {
+        entityResult := "UNKNOWN POS"
+        errNotes := "Unhandled POS: " posValue
+    }
+
+    ; =========================
+    ; Claim Status Detection
+    ; =========================
+    Send "{Tab 3}"
+    Sleep 250
+    Send "^c"
+    Sleep 200
+
+    claimStatus := StrUpper(Trim(A_Clipboard))
+    A_Clipboard := ""
+
+    switch claimStatus {
+        case "01":
+            statusDesc := "PAID"
+        case "02":
+            statusDesc := "DENIED"
+            errNotes := "Denied claim"
+        case "11":
+            statusDesc := "PENDING"
+            errNotes := "Pending"
+            goto REFRESH_AND_NEXT
+        case "15":
+            statusDesc := "VOIDED"
+            errNotes := "Voided"
+            goto REFRESH_AND_NEXT
+        default:
+            statusDesc := "UNKNOWN STATUS"
+            errNotes := "Status: " claimStatus
+            goto REFRESH_AND_NEXT
+    }
+
+    ; =========================
+    ; Pricing + CPS Eligibility
+    ; =========================
+    Send "{Tab 4}"
+    Sleep 200
+    Send "^c"
+    Sleep 200
+    allowedAmt := RegExReplace(A_Clipboard, "[^\d\.]")
+    A_Clipboard := ""
+
+    Send "{Tab}"
+    Sleep 150
+    Send "^c"
+    Sleep 200
+    paidAmt := RegExReplace(A_Clipboard, "[^\d\.]")
+    A_Clipboard := ""
+
+    allowedAmt := allowedAmt + 0
+    paidAmt    := paidAmt + 0
+
+    if (allowedAmt = 0) {
+        cpsResult := "NO ALLOWED AMT"
+        errNotes := "Zero allowed"
+        goto REFRESH_AND_NEXT
+    }
+
+    if (paidAmt < allowedAmt) {
+        cpsEligible := true
+        cpsResult := "CPS ELIGIBLE"
+    } else {
+        cpsResult := "NOT CPS"
+    }
+
+    ; =========================
+    ; J9035 Detection
+    ; =========================
+    Send "{Tab 2}"
+    Sleep 200
+    Send "^c"
+    Sleep 200
+
+    procCode := StrUpper(Trim(A_Clipboard))
+    A_Clipboard := ""
+
+    if (procCode = "J9035") {
+        j9035Flag := true
+        cpsEligible := false
+        cpsResult := "J9035 SPECIAL"
+        errNotes := "J9035 detected"
+    }
+
+    ; =========================
+    ; UM / Match UM Logic
+    ; =========================
+    Send "{Tab 2}"
+    Sleep 150
+    Send "^c"
+    umFrom := Trim(A_Clipboard)
+    A_Clipboard := ""
+
+    Send "{Tab}"
+    Sleep 150
+    Send "^c"
+    umTo := Trim(A_Clipboard)
+    A_Clipboard := ""
+
+    if (umFrom = "" || umTo = "") {
+        umResult := "NO UM"
+    } else {
+        umResult := "UM PRESENT"
+    }
+
+    ; =========================
+    ; Write Results to Excel
+    ; =========================
+    WRITE_RESULTS:
+    oSheet.Range("L" Row).Value := entityResult
+    oSheet.Range("M" Row).Value := statusDesc
+    oSheet.Range("N" Row).Value := cpsResult
+    oSheet.Range("O" Row).Value := umResult
+    oSheet.Range("P" Row).Value := procCode
+    oSheet.Range("Q" Row).Value := errNotes
+
+    ; =========================
+    ; Refresh & Cleanup
+    ; =========================
+    REFRESH_AND_NEXT:
+    PressF3toRefresh()
+    A_Clipboard := ""
+
+    Row++
+}
+
+MsgBox "Processing complete."
+
+; =========================
+; Helper Functions
+; =========================
+PressF3toRefresh()
+{
+    Send "{F3}"
+    Sleep 1200
+}
