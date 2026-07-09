@@ -1,17 +1,9 @@
 # ============================================================
+# VisionDocs - Client Demo UI
 # Author: Juan Miguel Bugayong
-# Email: juanmiguel.bugayong@sagilityhealth.com
-# Date Created: 2026-05-16
-# Date Updated: 2026-05-16
-# 
-# List of pip
-# - python -m pip install selenium pyperclip pynput
 #
-# List of Updates:
-# - 2026-05-16: Initial creation of the Python script.
-# - Added CPT Codes Logic
-# - Fix force tab
-# - Fix minor Bug
+# pip install selenium pyperclip pynput
+# Run: python visiondocs_dental_finalize_notepad_update.py
 # ============================================================
 
 import ctypes
@@ -21,6 +13,7 @@ import re
 import threading
 import time
 import traceback
+from datetime import datetime
 import tkinter as tk
 from tkinter import scrolledtext
 
@@ -67,28 +60,97 @@ FOREGROUND_TITLE_KEYWORDS = [
 
 MAX_CPT_BUTTONS_PER_ROW = 5
 
+CALLERS_INFO_CLAIMS_TEMPLATE = """Name:
+Callback No:
+Tax ID:
+Provider Name:
+Provider Address:
+Member's ID:
+Patient Name:
+DOB:"""
+
+CALLERS_INFO_ELIGIBILITY_TEMPLATE = """Name:
+Callback No:
+Member ID:
+Patient Name:
+DOB:"""
+
+# Default template is Claims.
+CALLERS_INFO_TEMPLATE = CALLERS_INFO_CLAIMS_TEMPLATE
+
+ADDITIONAL_INFO_FIELDS = [
+    "Prep/seat date",
+    "Initial/Replacement",
+    "Prior Placement date and reason for replacement",
+    "X-rays/Narrative",
+    "Is there root canal history needed? (Request in writing)",
+    "X-rays needed? (Request in writing)",
+]
+
+ADDITIONAL_INFO_TRIGGER_CODES = {"D6056", "D6065"}
+
 
 # =========================
 # CLAIM / PROVIDER XPATHS
 # =========================
 
-XPATH_TRIGGER_CLAIM_HEADER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/header/div[1]/div/div[1]/h2"
+XPATH_TRIGGER_CLAIM_HEADER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/header/div[1]/div/div[1]/h2"
 
-XPATH_CLAIM_NUMBER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/header/div[1]/div/div[1]/div/span"
+XPATH_CLAIM_NUMBER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/header/div[1]/div/div[1]/div/span"
 
-XPATH_TIN_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[1]/div[1]"
+XPATH_TIN_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[1]/div[1]"
 
-XPATH_SERVICING_PROV_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[1]/div[2]"
+XPATH_SERVICING_PROV_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[1]/div[2]"
 
-XPATH_RENDERING_PROVIDER_NPI_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[2]/div[1]"
+XPATH_RENDERING_PROVIDER_NPI_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[2]/div[1]"
 
-XPATH_FEE_SCHED_ID_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[2]/div[2]"
+XPATH_FEE_SCHED_ID_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[2]/div[2]"
 
-XPATH_SPECIALTY_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[1]/div[3]"
+XPATH_SPECIALTY_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[1]/div[3]"
 
-XPATH_BILLING_PROVIDER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[4]/div/span"
+XPATH_BILLING_PROVIDER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[4]/div/span"
 
-XPATH_BILLING_NPI = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[3]/div[1]/span"
+XPATH_BILLING_NPI = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[3]/div[1]/span"
+
+XPATH_CLAIM_DCN = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-claims-info/cigna-ov-accordion/cigna-accordion/div/div/div/div/div[1]"
+
+XPATH_CLAIM_INFO_ACCORDION_OPENER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-claims-info/cigna-ov-accordion/cigna-accordion/div/button/div/div"
+
+XPATH_RENDERING_ADDRESS_POPOVER_TRIGGER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-dental/div/span/cigna-servicing-provider/div/div[1]/div[1]/span/cigna-popover/a"
+
+XPATH_RENDERING_ADDRESS_VALUE = r"/html/body/popover-container/div[2]/div/span/div/span[1]/div[2]/span"
+
+
+# =========================
+# ELIGIBILITY & BENEFITS XPATHS
+# =========================
+
+XPATH_ELIGIBILITY_DETECTOR = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-subject-info-wrapper/div/div[1]/h2/span"
+
+# Button that opens the detailed dental Eligibility view after member confirmation.
+XPATH_ELIGIBILITY_DETAILS_BUTTON = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-subject-info-wrapper/div/div[2]/cigna-tab-group/div/cigna-customer-information/div/button[10]"
+
+# Close button for the detailed dental Eligibility view.
+XPATH_ELIGIBILITY_DETAILS_CLOSE = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/span/a/div"
+
+XPATH_ELIG_COVERAGE_EFFECTIVE = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[1]/div[1]/span"
+
+XPATH_ELIG_COVERAGE_TERM = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[2]/div[1]/span"
+
+XPATH_ELIG_ORIGINAL_EFFECTIVE_DATE = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[3]/div[1]/span"
+
+XPATH_ELIG_PRODUCT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[1]/div[2]/span"
+
+XPATH_ELIG_ACCOUNT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[1]/div[3]/span"
+
+XPATH_ELIG_MISSING_TOOTH_WAIVED = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[1]/div[6]/span"
+
+XPATH_ELIG_WAITING_PERIOD = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[1]/div[7]/span"
+
+XPATH_ELIG_FUNDING_TYPE = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/cigna-ov-sidenav/div/div/div/ng-component/cigna-eligibility-wrapper/div/div/div/cigna-eligibility-dental-view/cigna-dental-product-information/div/div[2]/div[5]/span"
+
+# Still used to proactively fill Callers Information from the member summary view.
+XPATH_ELIG_DOB = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-subject-info-wrapper/div/div[2]/cigna-tab-group/div/cigna-customer-information/cigna-general-customer-data/div/div/div[2]/div[5]/span"
 
 
 SCRAPE_FIELDS = [
@@ -98,8 +160,21 @@ SCRAPE_FIELDS = [
     {"name": "Rendering Provider NPI", "xpath": XPATH_RENDERING_PROVIDER_NPI_PARENT, "mode": "direct_text"},
     {"name": "Billing Provider", "xpath": XPATH_BILLING_PROVIDER, "mode": "full_text"},
     {"name": "Billing NPI", "xpath": XPATH_BILLING_NPI, "mode": "full_text"},
+    {"name": "DCN", "xpath": XPATH_CLAIM_DCN, "mode": "full_text"},
     {"name": "Fee Schedule ID", "xpath": XPATH_FEE_SCHED_ID_PARENT, "mode": "direct_text"},
     {"name": "Specialty", "xpath": XPATH_SPECIALTY_PARENT, "mode": "direct_text"},
+]
+
+
+ELIGIBILITY_FIELDS = [
+    {"name": "Coverage Effective", "xpath": XPATH_ELIG_COVERAGE_EFFECTIVE, "mode": "full_text"},
+    {"name": "Coverage Term", "xpath": XPATH_ELIG_COVERAGE_TERM, "mode": "full_text"},
+    {"name": "Orig. Efft. Date", "xpath": XPATH_ELIG_ORIGINAL_EFFECTIVE_DATE, "mode": "full_text"},
+    {"name": "Product", "xpath": XPATH_ELIG_PRODUCT, "mode": "full_text"},
+    {"name": "Account", "xpath": XPATH_ELIG_ACCOUNT, "mode": "full_text"},
+    {"name": "Missing Tooth Waived", "xpath": XPATH_ELIG_MISSING_TOOTH_WAIVED, "mode": "full_text"},
+    {"name": "Waiting Period", "xpath": XPATH_ELIG_WAITING_PERIOD, "mode": "full_text"},
+    {"name": "Funding Type", "xpath": XPATH_ELIG_FUNDING_TYPE, "mode": "full_text"},
 ]
 
 
@@ -121,6 +196,23 @@ FIELD_LABEL_PREFIXES = [
     "Fee Schedule ID",
     "Fee Sched ID",
     "Specialty",
+    "Coverage Period",
+    "Account Name",
+    "Product Name",
+    "Plan Type",
+    "Account Type",
+    "Coverage Effective",
+    "Coverage Term",
+    "Orig. Efft. Date",
+    "Original Effective Date",
+    "Product",
+    "Account",
+    "Missing Tooth Waived",
+    "Waiting Period",
+    "Funding Type",
+    "DCN",
+    "Claim Status",
+    "DOB",
 ]
 
 
@@ -129,27 +221,231 @@ FIELD_LABEL_PREFIXES = [
 # =========================
 
 SERVICE_LINE_COLUMNS = [
-    ("DoS", "value-startDoS"),
-    ("Serv Type", "value-serviceType.code"),
-    ("Proc/Mod", "value-procedureCode.code"),
-    ("APC Code", "value-apcCode.code"),
-    ("Units", "value-noOfUnits"),
-    ("TLC", "value-tlc"),
+    ("Tooth Number", "value-toothNum"),
+    ("Surface Code", "value-surfCode"),
+    ("DoS", "value-dateOfServiceStart"),
+    ("Proc/Mod", "value-procedureCodeDesc"),
     ("Charge", "value-chargeAmount"),
+    ("Contracted", "value-totalContractedAmount"),
     ("Not Cov", "value-notCoveredAmount"),
-    ("Allowed", "value-coveredAmount"),
-    ("Ded / Copay", "value-deductibleAmount"),
+    ("Ded", "value-deductibleAmount"),
     ("Balance", "value-balanceAmount"),
-    ("Plan Coins / Paid", "value-cignaBenefitPercentage"),
-    ("Patient Coins/Amt", "value-memberBenefitPercentage"),
+    ("Plan Coins / Paid", "value-cignaPercentage"),
+    ("Patient Coins/Amt", "value-memberPercentage"),
     ("Patient Resp", "value-patientRespAmount"),
-    ("Remark", "value-remarks"),
-    ("EHB Claim", "value-ehbClaimIndicator"),
-    ("Rate Diff Group", "value-rateDifferentialGroup"),
-    ("Rate Diff Type", "value-rateDifferentialType"),
-    ("Fee Schedule Indicator", "value-feeScheduleIndicator"),
-    ("Ovr / Flag", "value-override.code"),
-    ("Reimb", "value-hsaPaidAmount1"),
+    ("Remark", "value-remarkCode"),
+    ("Service Class", "value-serviceClassDesc"),
+    ("Ov", "value-override"),
+    ("Adj", "value-adjTierLevel"),
+]
+
+
+# =========================
+# DENTAL CLAIM ADVISORY RULES
+# =========================
+# Proof-of-concept hardcoded table from Article 56494.
+# Exact override rules are evaluated first.
+
+DENTAL_ADVISORY_RULES = [
+    {
+        "name": "D6010 specific exception",
+        "codes": ["D6010"],
+        "override": True,
+        "requirements": [
+            "Initial/Replacement",
+            "FMX/Pano",
+            "Prior Placement date and reason for replacement",
+            "List of missing teeth, unreplaced teeth, and date of extractions",
+            "Prep/seat date is not needed for procedure code D6010",
+        ],
+    },
+    {
+        "name": "Inlays / onlays / crowns selected restorations",
+        "ranges": [("D2542", "D2544"), ("D2642", "D2644"), ("D2662", "D2664"), ("D2932", "D2934")],
+        "codes": ["D2929"],
+        "requirements": [
+            "Prep/seat date",
+            "Initial/Replacement",
+            "Prior Placement date and reason for replacement",
+            "X-rays/Narrative",
+        ],
+    },
+    {
+        "name": "Periodontal procedures",
+        "ranges": [("D4210", "D4245"), ("D4260", "D4267")],
+        "requirements": [
+            "Current periodontal charting",
+            "X-rays/narrative",
+        ],
+    },
+    {
+        "name": "Graft / gum defect procedures",
+        "codes": ["D4723", "D4275", "D4277", "D4278", "D4283", "D4285"],
+        "requirements": [
+            "Narrative stating the necessity of treatment",
+            "Description of the gum defect",
+            "Extent and history of gum recession",
+            "Amount of attached gingiva",
+            "For multiple or extensive grafts which may not appear warranted, request photos if available",
+            "Frenum involvement",
+            "Loss of gingival attachment",
+        ],
+    },
+    {
+        "name": "Dentures / prosthodontics",
+        "ranges": [("D5110", "D5281"), ("D5810", "D5821")],
+        "requirements": [
+            "Prep/seat date",
+            "Initial/Replacement",
+            "Prior Placement date and reason for replacement",
+            "List of missing teeth and date of extractions",
+        ],
+    },
+    {
+        "name": "Pathology related procedures",
+        "ranges": [("D7285", "D7286"), ("D7450", "D7451")],
+        "requirements": [
+            "Copy of pathology report",
+            "X-rays/narrative",
+        ],
+    },
+    {
+        "name": "X-rays / narrative group",
+        "ranges": [("D3331", "D3920"), ("D7210", "D7250"), ("D7220", "D7240"), ("D7280", "D7283")],
+        "codes": ["D2953", "D2957", "D3221", "D4249", "D7290"],
+        "requirements": [
+            "X-rays/narrative",
+        ],
+    },
+    {
+        "name": "Crowns D2710-D2799",
+        "ranges": [("D2710", "D2799")],
+        "requirements": [
+            "Prep/seat date",
+            "Initial/Replacement",
+            "Prior Placement date and reason for replacement",
+            "X-rays/Narrative for more than 1 anterior tooth",
+        ],
+    },
+    {
+        "name": "D2950",
+        "codes": ["D2950"],
+        "requirements": [
+            "Prep/seat date of crown",
+            "Initial/Replacement",
+            "If replacement, need age of previous crown and reason for replacement",
+            "Multiple submissions of D2950 require X-rays",
+        ],
+    },
+    {
+        "name": "D2952-D2954",
+        "ranges": [("D2952", "D2954")],
+        "requirements": [
+            "Prep/seat date of crown",
+            "With root canal history",
+            "No history of root needs X-rays",
+            "D3310-D3330 open/close dates",
+        ],
+    },
+    {
+        "name": "D4341",
+        "codes": ["D4341"],
+        "requirements": [
+            "Current periodontal charting",
+            "X-rays",
+        ],
+    },
+    {
+        "name": "D4910",
+        "codes": ["D4910"],
+        "requirements": [
+            "Prior history of scaling & root planning",
+            "D4341-D4343",
+            "Gingivectomy or gingivoplasty D4210-D4211",
+            "Gingival flap D4240-D4241",
+            "Osseous surgery D4260-D4261",
+        ],
+    },
+    {
+        "name": "D2960-D2962",
+        "ranges": [("D2960", "D2962")],
+        "requirements": [
+            "Seat date",
+            "X-rays/narrative",
+        ],
+    },
+    {
+        "name": "D2975",
+        "codes": ["D2975"],
+        "requirements": [
+            "Prep/seat date",
+            "Initial/Replacement",
+            "Prior Placement date and reason for replacement",
+            "X-rays/narrative",
+        ],
+    },
+    {
+        "name": "Implants / fixed prosthodontics D6010-D6999",
+        "ranges": [("D6010", "D6999")],
+        "requirements": [
+            "Prep/seat date",
+            "Initial/Replacement",
+            "FMX/Pano",
+            "Prior Placement date and reason for replacement",
+            "List of missing teeth, unreplaced teeth, and date of extractions",
+        ],
+    },
+    {
+        "name": "D7241",
+        "codes": ["D7241"],
+        "requirements": [
+            "FMX/pano",
+            "X-rays/narrative",
+        ],
+    },
+    {
+        "name": "D7340-D7350",
+        "ranges": [("D7340", "D7350")],
+        "requirements": [
+            "Narrative",
+        ],
+    },
+    {
+        "name": "D7410-D7412",
+        "ranges": [("D7410", "D7412")],
+        "requirements": [
+            "Copy of biopsy/pathology report",
+        ],
+    },
+    {
+        "name": "D7950-D7952",
+        "ranges": [("D7950", "D7952")],
+        "requirements": [
+            "Narrative (PTR)",
+            "OP report (dated services)",
+            "Medical denial EOB",
+        ],
+    },
+    {
+        "name": "D7953",
+        "codes": ["D7953"],
+        "requirements": [
+            "Narrative and must be with implant",
+            "Full Arch X-ray, or FMX/Pano/List of missing unfilled teeth is acceptable",
+        ],
+    },
+    {
+        "name": "Orthodontic procedures D8000-D8999",
+        "ranges": [("D8000", "D8999")],
+        "requirements": [
+            "Months in treatment",
+            "Banding Date",
+            "Total case fee",
+            "Records date",
+            "Prep/seat date for retainer",
+            "Reason for retainer replacement",
+        ],
+    },
 ]
 
 
@@ -186,24 +482,41 @@ def system_modal_info(title, message):
 class OneViewWatcherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Claim Watcher")
-        self.root.geometry("560x665")
-        self.root.minsize(540, 600)
-        self.root.configure(bg="black")
+        self.root.title("VisionDocs")
+        self.root.geometry("520x425")
+        self.root.minsize(520, 425)
+        self.root.configure(bg="#0170BC")
+        self.root.attributes("-topmost", True)
 
         self.driver = None
         self.worker_thread = None
         self.stop_event = threading.Event()
 
         self.running = False
+        self.provider_concern = ""
 
         self.target_window_handle = None
         self.last_claim_number = ""
+        self.last_eligibility_member = ""
 
+        self.current_claim_data = {}
+        self.current_eligibility_data = {}
+        self.current_eligibility_items = []
+        self.selected_eligibility_items = []
+        self.caller_field_cache = {}
         self.current_service_lines = []
         self.current_total_line = {}
+
         self.selected_service_line = None
-        self.selected_procedure_mode = None
+        self.selected_service_lines = []
+        self.selected_service_line_indices = set()
+        self.selected_procedure_mode = None  # SINGLE, MULTI, ALL
+
+        self.current_advisory_notes = []
+        self.raw_visible = False
+        self.additional_info_visible = False
+        self.additional_info_entries = {}
+        self.last_additional_info_output_block = ""
 
         self.last_extracted_text = ""
         self.last_final_output_text = ""
@@ -214,10 +527,39 @@ class OneViewWatcherApp:
         self.highlight_candidate_time = 0.0
         self.last_auto_copied_highlight = ""
 
+        # F8 capture mode: captures highlighted OneView text into an editable UI box.
+        self.capture_notes_active = False
+        self.capture_notes_visible = False
+        self.capture_notes_items = []
+        self.capture_notes_seen = set()
+        self.capture_candidate_text = ""
+        self.capture_candidate_time = 0.0
+        self.last_captured_highlight = ""
+
         self.hotkey_listener = None
+        self.ui_thread_id = threading.get_ident()
+
+        self.colors = {
+            "bg": "#0170BC",
+            "panel": "#014d82",
+            "card": "#ffffff",
+            "card_alt": "#f8fafc",
+            "text": "#0f172a",
+            "muted": "#475569",
+            "primary": "#082F49",
+            "primary_hover": "#0C4A6E",
+            "secondary": "#E2E8F0",
+            "success": "#064E3B",
+            "warning": "#7C2D12",
+            "danger": "#7F1D1D",
+            "input_pending": "#FBECEC",
+            "input_complete": "#EEF8F0",
+            "border": "#BAE6FD",
+        }
 
         self.build_ui()
         self.start_global_hotkey()
+        self.keep_tool_topmost()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -226,118 +568,686 @@ class OneViewWatcherApp:
     # =========================
 
     def build_ui(self):
-        main = tk.Frame(self.root, bg="black")
-        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        shell = tk.Frame(self.root, bg=self.colors["bg"])
+        shell.pack(fill=tk.BOTH, expand=True)
 
-        button_frame = tk.Frame(main, bg="black")
-        button_frame.pack(fill=tk.X, pady=(0, 4))
-
-        self.start_btn = tk.Button(
-            button_frame,
-            text="Start",
-            width=8,
-            bg="yellow",
-            fg="black",
-            command=self.start_bot,
+        self.canvas = tk.Canvas(
+            shell,
+            bg=self.colors["bg"],
+            highlightthickness=0,
+            bd=0,
         )
-        self.start_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.scrollbar = tk.Scrollbar(shell, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scroll_frame = tk.Frame(self.canvas, bg=self.colors["bg"])
 
-        self.stop_btn = tk.Button(
-            button_frame,
-            text="Stop",
-            width=8,
-            bg="yellow",
-            fg="black",
-            command=self.stop_bot,
-            state=tk.DISABLED,
-        )
-        self.stop_btn.pack(side=tk.LEFT, padx=(0, 5))
-
-        self.copy_btn = tk.Button(
-            button_frame,
-            text="📋 Copy Final / F2",
-            width=16,
-            bg="yellow",
-            fg="black",
-            command=lambda: self.copy_current_final_output("button"),
-        )
-        self.copy_btn.pack(side=tk.LEFT, padx=(0, 5))
-
-        self.copy_raw_btn = tk.Button(
-            button_frame,
-            text="Copy Raw",
-            width=9,
-            bg="yellow",
-            fg="black",
-            command=self.copy_raw_result,
-        )
-        self.copy_raw_btn.pack(side=tk.LEFT, padx=(0, 5))
-
-        self.auto_copy_btn = tk.Button(
-            button_frame,
-            text="Auto Copy: OFF",
-            width=14,
-            bg="yellow",
-            fg="black",
-            command=self.toggle_auto_copy_highlight,
-        )
-        self.auto_copy_btn.pack(side=tk.LEFT)
-
-        self.auto_copy_note = tk.Label(
-            main,
-            text=(
-                "Note: Auto Copy is OFF by default. When ON, highlighted OneView website text "
-                "automatically replaces your clipboard. Use 📋 Copy Final / F2 to copy your edited Final Output again."
-            ),
-            bg="black",
-            fg="#d9d9d9",
-            anchor="w",
-            justify=tk.LEFT,
-            wraplength=530,
-            font=("Segoe UI", 8),
-        )
-        self.auto_copy_note.pack(fill=tk.X, pady=(0, 6))
-
-        self.final_output_box = self.create_text_section(
-            parent=main,
-            title="Final Output",
-            border_color="#ff2f4f",
-            height=18,
+        self.scroll_frame.bind(
+            "<Configure>",
+            lambda event: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
         )
 
-        self.extracted_data_box = self.create_text_section(
-            parent=main,
-            title="Extracted Data / Raw Fields",
-            border_color="#3957ff",
-            height=13,
-        )
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scroll_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-    def create_text_section(self, parent, title, border_color, height):
-        title_label = tk.Label(
-            parent,
-            text=title,
-            bg="black",
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.bind("<Configure>", self.resize_canvas_window)
+        self.canvas.bind_all("<MouseWheel>", self.on_mousewheel)
+
+        main = tk.Frame(self.scroll_frame, bg=self.colors["bg"], padx=10, pady=10)
+        main.pack(fill=tk.BOTH, expand=True)
+        self.main_content_parent = main
+
+        self.build_action_center(main)
+        self.build_capture_notes_panel(main)
+        self.build_caller_card(main)
+        self.build_provider_concern_switch(main)
+        self.build_additional_info_form(main)
+        self.build_output_area(main)
+        self.build_footer(main)
+
+        self.set_status("Ready. Click Start to open OneView, then select Claims or Eligibility when the call starts.", "info")
+        self.update_another_code_button_state()
+
+    def resize_canvas_window(self, event):
+        try:
+            self.canvas.itemconfigure(self.canvas_window, width=event.width)
+        except Exception:
+            pass
+
+    def on_mousewheel(self, event):
+        try:
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        except Exception:
+            pass
+
+    def keep_tool_topmost(self):
+        try:
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
+
+        try:
+            self.root.after(2000, self.keep_tool_topmost)
+        except Exception:
+            pass
+
+    def build_action_center(self, parent):
+        panel = tk.Frame(parent, bg=self.colors["panel"], padx=8, pady=8)
+        panel.pack(fill=tk.X, pady=(0, 8))
+
+        self.status_line = tk.Label(
+            panel,
+            text="VisionDocs",
+            bg=self.colors["panel"],
             fg="white",
             anchor="w",
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 8, "bold"),
         )
-        title_label.pack(fill=tk.X, pady=(3, 2))
+        self.status_line.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
 
-        border_frame = tk.Frame(parent, bg=border_color, padx=3, pady=3)
-        border_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 6))
+        self.start_btn = self.create_action_button(
+            panel,
+            text="Start",
+            command=self.start_bot,
+            bg=self.colors["primary"],
+            fg="white",
+        )
+        self.start_btn.grid(row=1, column=0, padx=3, pady=3, sticky="ew")
 
-        text_widget = scrolledtext.ScrolledText(
-            border_frame,
-            height=height,
+        self.stop_btn = self.create_action_button(
+            panel,
+            text="Stop",
+            command=self.stop_bot,
+            bg=self.colors["danger"],
+            fg="white",
+            state=tk.DISABLED,
+        )
+        self.stop_btn.grid(row=1, column=1, padx=3, pady=3, sticky="ew")
+
+        self.another_code_btn = self.create_action_button(
+            panel,
+            text="Another Code",
+            command=self.handle_another_code,
+            bg=self.colors["warning"],
+            fg="white",
+            state=tk.DISABLED,
+        )
+        self.another_code_btn.grid(row=1, column=2, padx=3, pady=3, sticky="ew")
+
+        self.reopen_elig_btn = self.create_action_button(
+            panel,
+            text="Reopen Eligibility",
+            command=self.reopen_eligibility_popup,
+            bg=self.colors["primary"],
+            fg="white",
+        )
+        self.reopen_elig_btn.grid(row=2, column=0, padx=3, pady=3, sticky="ew")
+
+        self.reset_btn = self.create_action_button(
+            panel,
+            text="New Inquiry",
+            command=self.hard_reset,
+            bg=self.colors["danger"],
+            fg="white",
+        )
+        self.reset_btn.grid(row=2, column=1, padx=3, pady=3, sticky="ew")
+
+        self.f2_instruction = tk.Label(
+            panel,
+            text="VisionDocs 1.0",
+            bg=self.colors["panel"],
+            fg="#DFF6FF",
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=455,
+            font=("Segoe UI", 8),
+        )
+        self.f2_instruction.grid(row=3, column=0, columnspan=3, sticky="ew", padx=3, pady=(6, 0))
+
+        for col in range(3):
+            panel.columnconfigure(col, weight=1)
+
+    def create_panel(self, parent, title):
+        outer = tk.Frame(parent, bg=self.colors["border"], padx=1, pady=1)
+        outer.pack(fill=tk.X, pady=(0, 8))
+
+        card = tk.Frame(outer, bg=self.colors["card"], padx=0, pady=0)
+        card.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            card,
+            text=title,
+            bg=self.colors["card"],
+            fg=self.colors["text"],
+            anchor="w",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(fill=tk.X, padx=8, pady=(7, 5))
+
+        return card, outer
+
+    def toggle_raw_visibility(self):
+        self.raw_visible = not self.raw_visible
+
+        if self.raw_visible:
+            self.raw_card_outer.pack(fill=tk.X, pady=(0, 8), after=self.final_card_outer)
+            self.show_raw_btn.config(text="Hide Raw")
+            self.set_status("Raw / Extracted Data is visible.", "info")
+        else:
+            self.raw_card_outer.pack_forget()
+            self.show_raw_btn.config(text="Show Raw")
+            self.set_status("Raw / Extracted Data is hidden.", "info")
+
+    def build_provider_concern_switch(self, parent):
+        body, _outer = self.create_panel(parent, "Provider Concern")
+
+        self.selected_concern_label = tk.Label(
+            body,
+            text="Selected: Not selected",
+            bg=self.colors["card"],
+            fg=self.colors["muted"],
+            anchor="w",
+            font=("Segoe UI", 8, "bold"),
+        )
+        self.selected_concern_label.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+        switch = tk.Frame(body, bg=self.colors["card"])
+        switch.pack(fill=tk.X, padx=8, pady=(0, 8))
+
+        self.claims_switch_btn = self.create_action_button(
+            switch,
+            text="Claims",
+            command=lambda: self.select_provider_concern("Claims"),
+            bg=self.colors["primary"],
+            fg="white",
+        )
+        self.claims_switch_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+
+        self.elig_switch_btn = self.create_action_button(
+            switch,
+            text="Eligibility",
+            command=lambda: self.select_provider_concern("Eligibility"),
+            bg=self.colors["secondary"],
+            fg=self.colors["text"],
+        )
+        self.elig_switch_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+
+    def select_provider_concern(self, value):
+        self.provider_concern = value
+        self.apply_caller_template_for_concern(value)
+
+        if hasattr(self, "selected_concern_label"):
+            self.selected_concern_label.config(text=f"Selected: {value}", fg=self.colors["text"])
+
+        if value == "Claims":
+            self.claims_switch_btn.config(bg=self.colors["success"], fg="white")
+            self.elig_switch_btn.config(bg=self.colors["secondary"], fg=self.colors["text"])
+            self.last_claim_number = ""
+            self.set_status("Claims selected. Claim scanning is now enabled when OneView is active.", "success")
+            self.append_log("Provider concern selected: Claims")
+        else:
+            self.claims_switch_btn.config(bg=self.colors["secondary"], fg=self.colors["text"])
+            self.elig_switch_btn.config(bg=self.colors["success"], fg="white")
+            self.last_eligibility_member = ""
+            self.set_status("Eligibility selected. Member scanning is now enabled when OneView is active.", "success")
+            self.append_log("Provider concern selected: Eligibility")
+
+    def build_header(self, parent):
+        pass
+
+    def build_capture_notes_panel(self, parent):
+        """Build the F8 preview panel.
+
+        This is intentionally NOT created through create_panel() because the prior
+        implementation could leave a blank teal area visible while the ScrolledText
+        widget was not rendered. This dedicated panel is always packed/unpacked as
+        one complete unit.
+        """
+        self.capture_notes_outer = tk.Frame(parent, bg=self.colors["border"], padx=1, pady=1)
+
+        self.capture_notes_card = tk.Frame(self.capture_notes_outer, bg=self.colors["card"], padx=0, pady=0)
+        self.capture_notes_card.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            self.capture_notes_card,
+            text="Captured Notes",
+            bg=self.colors["card"],
+            fg=self.colors["text"],
+            anchor="w",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(fill=tk.X, padx=8, pady=(7, 3))
+
+        self.capture_notes_status_label = tk.Label(
+            self.capture_notes_card,
+            text="Capture mode is ON. Highlight text in OneView and it will appear here. Press F8 again to add these notes to Additional notes.",
+            bg=self.colors["card"],
+            fg=self.colors["muted"],
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=455,
+            font=("Segoe UI", 8),
+        )
+        self.capture_notes_status_label.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+        self.capture_notes_box = scrolledtext.ScrolledText(
+            self.capture_notes_card,
+            height=6,
             wrap=tk.WORD,
             bg="white",
-            fg="black",
-            insertbackground="black",
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
             font=("Consolas", 9),
+            relief=tk.SOLID,
+            bd=1,
         )
-        text_widget.pack(fill=tk.BOTH, expand=True)
+        self.capture_notes_box.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        return text_widget
+        self.capture_notes_outer.pack_forget()
+        self.capture_notes_visible = False
+
+    def build_caller_card(self, parent):
+        body, self.callers_info_outer = self.create_panel(parent, "Callers Information")
+
+        self.callers_info_box = scrolledtext.ScrolledText(
+            body,
+            height=8,
+            wrap=tk.WORD,
+            bg="white",
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
+            font=("Consolas", 9),
+            relief=tk.FLAT,
+            bd=0,
+        )
+        self.callers_info_box.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.callers_info_box.insert(tk.END, CALLERS_INFO_TEMPLATE)
+
+    def sync_caller_field_cache_from_ui(self):
+        """Store current Callers Information values so switching templates does not lose typed data."""
+        try:
+            text = self.get_caller_info_text_from_ui()
+        except Exception:
+            text = ""
+
+        for line in text.splitlines():
+            if ":" not in line:
+                continue
+            label, value = line.split(":", 1)
+            label = label.strip()
+            value = value.strip()
+            if not label:
+                continue
+            key = self.normalize_caller_label(label)
+            # Preserve existing cached values when the currently visible template
+            # does not contain a value for that field. Hard Reset clears the cache.
+            if value:
+                self.caller_field_cache[key] = value
+            elif key not in self.caller_field_cache:
+                self.caller_field_cache[key] = ""
+
+    def normalize_caller_label(self, label):
+        normalized = str(label or "").strip().lower()
+        normalized = normalized.replace("'", "")
+        normalized = re.sub(r"\s+", " ", normalized)
+        if normalized in {"members id", "member id", "id"}:
+            return "member id"
+        return normalized
+
+    def caller_template_labels_for_concern(self, concern=None):
+        template = CALLERS_INFO_ELIGIBILITY_TEMPLATE if concern == "Eligibility" else CALLERS_INFO_CLAIMS_TEMPLATE
+        return [line.split(":", 1)[0].strip() for line in template.splitlines() if ":" in line]
+
+    def apply_caller_template_for_concern(self, concern=None):
+        """Switch Callers Information template while preserving matching values where possible."""
+        try:
+            self.sync_caller_field_cache_from_ui()
+
+            labels = self.caller_template_labels_for_concern(concern)
+            lines = []
+            for label in labels:
+                key = self.normalize_caller_label(label)
+                value = self.caller_field_cache.get(key, "")
+                lines.append(f"{label}: {value}" if value else f"{label}:")
+
+            self.callers_info_box.delete("1.0", tk.END)
+            self.callers_info_box.insert(tk.END, "\n".join(lines))
+        except Exception as e:
+            self.append_log(f"Caller template switch warning: {type(e).__name__}: {e}")
+
+    def clear_additional_info_form(self):
+        try:
+            for entry in self.additional_info_entries.values():
+                entry.delete(0, tk.END)
+                entry.config(bg=self.colors["input_pending"])
+            self.last_additional_info_output_block = ""
+            self.hide_additional_info_form()
+        except Exception:
+            pass
+
+    def hard_reset(self):
+        """Reset the working documentation without closing OneView."""
+        self.provider_concern = ""
+        self.last_claim_number = ""
+        self.last_eligibility_member = ""
+        self.current_claim_data = {}
+        self.current_eligibility_data = {}
+        self.current_eligibility_items = []
+        self.selected_eligibility_items = []
+        self.current_service_lines = []
+        self.current_total_line = {}
+        self.selected_service_line = None
+        self.selected_service_lines = []
+        self.selected_service_line_indices = set()
+        self.selected_procedure_mode = None
+        self.current_advisory_notes = []
+        self.last_extracted_text = ""
+        self.last_final_output_text = ""
+        self.last_clipboard_text = ""
+        self.caller_field_cache = {}
+
+        try:
+            self.callers_info_box.delete("1.0", tk.END)
+            self.callers_info_box.insert(tk.END, CALLERS_INFO_CLAIMS_TEMPLATE)
+            self.final_output_box.delete("1.0", tk.END)
+            self.extracted_data_box.delete("1.0", tk.END)
+        except Exception:
+            pass
+
+        self.clear_additional_info_form()
+        self.clear_capture_notes_state(hide=True)
+
+        if hasattr(self, "selected_concern_label"):
+            self.selected_concern_label.config(text="Selected: Not selected", fg=self.colors["muted"])
+        if hasattr(self, "claims_switch_btn"):
+            self.claims_switch_btn.config(bg=self.colors["primary"], fg="white")
+        if hasattr(self, "elig_switch_btn"):
+            self.elig_switch_btn.config(bg=self.colors["secondary"], fg=self.colors["text"])
+        if hasattr(self, "claim_status_display"):
+            self.claim_status_display.config(text="Claim Status: --")
+
+        self.update_another_code_button_state()
+        self.set_status("New inquiry started. Default caller template restored to Claims.", "info")
+        self.append_log("New inquiry completed.")
+
+    def build_concern_and_controls(self, parent):
+        pass
+
+    def build_additional_info_form(self, parent):
+        body, self.additional_info_outer = self.create_panel(parent, "Knowledge Article 56494 - Next Best Action")
+
+        helper = tk.Label(
+            body,
+            text="Complete each item when D6056 or D6065 is selected.",
+            bg=self.colors["card"],
+            fg=self.colors["muted"],
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=455,
+            font=("Segoe UI", 8),
+        )
+        helper.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+        self.additional_info_entries = {}
+
+        for field_name in ADDITIONAL_INFO_FIELDS:
+            row = tk.Frame(body, bg=self.colors["card"])
+            row.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+            label = tk.Label(
+                row,
+                text=f"{field_name}:",
+                bg=self.colors["card"],
+                fg=self.colors["text"],
+                anchor="w",
+                justify=tk.LEFT,
+                wraplength=445,
+                font=("Segoe UI", 8, "bold"),
+            )
+            label.pack(fill=tk.X)
+
+            entry = tk.Entry(
+                row,
+                bg=self.colors["input_pending"],
+                fg=self.colors["text"],
+                insertbackground=self.colors["text"],
+                relief=tk.FLAT,
+                bd=0,
+                font=("Consolas", 9),
+            )
+            entry.pack(fill=tk.X, pady=(2, 0), ipady=4)
+            entry.bind("<KeyRelease>", lambda _event, e=entry: self.handle_additional_info_change(e))
+            entry.bind("<FocusOut>", lambda _event, e=entry: self.handle_additional_info_change(e))
+
+            self.additional_info_entries[field_name] = entry
+
+        self.additional_info_outer.pack_forget()
+        self.additional_info_visible = False
+
+    def validate_additional_info_entry(self, entry):
+        try:
+            value = entry.get().strip()
+            entry.config(bg=self.colors["input_complete"] if value else self.colors["input_pending"])
+        except Exception:
+            pass
+
+    def handle_additional_info_change(self, entry):
+        self.validate_additional_info_entry(entry)
+        self.sync_completed_additional_info_to_final_output()
+
+    def is_additional_info_complete(self):
+        if not self.additional_info_visible:
+            return False
+
+        if not self.additional_info_entries:
+            return False
+
+        for field_name in ADDITIONAL_INFO_FIELDS:
+            entry = self.additional_info_entries.get(field_name)
+            if entry is None:
+                return False
+
+            try:
+                if not entry.get().strip():
+                    return False
+            except Exception:
+                return False
+
+        return True
+
+    def get_completed_additional_info_block(self):
+        if not self.is_additional_info_complete():
+            return ""
+
+        lines = ["Knowledge Article 56494 - Next Best Action:"]
+
+        for field_name in ADDITIONAL_INFO_FIELDS:
+            entry = self.additional_info_entries.get(field_name)
+            value = entry.get().strip() if entry is not None else ""
+            lines.append(f"{field_name}: {value}")
+
+        return "\n".join(lines).strip()
+
+    def remove_previous_additional_info_block(self, text):
+        output = str(text or "")
+
+        previous_block = str(self.last_additional_info_output_block or "").strip()
+        if previous_block and previous_block in output:
+            output = output.replace("\n\n" + previous_block, "")
+            output = output.replace(previous_block, "")
+
+        return output.rstrip()
+
+    def add_completed_additional_info_to_text(self, text):
+        base_text = self.remove_previous_additional_info_block(text)
+        completed_block = self.get_completed_additional_info_block()
+
+        if not completed_block:
+            return base_text
+
+        if "Additional notes:" in base_text:
+            if base_text.rstrip().endswith("Additional notes:"):
+                return base_text.rstrip() + "\n" + completed_block
+            return base_text.rstrip() + "\n\n" + completed_block
+
+        return base_text.rstrip() + "\n\n" + completed_block
+
+    def sync_completed_additional_info_to_final_output(self):
+        if not hasattr(self, "final_output_box"):
+            return
+
+        try:
+            current_text = self.final_output_box.get("1.0", "end-1c")
+        except Exception:
+            return
+
+        updated_text = self.add_completed_additional_info_to_text(current_text)
+        completed_block = self.get_completed_additional_info_block()
+
+        if updated_text != current_text:
+            try:
+                self.final_output_box.delete("1.0", tk.END)
+                self.final_output_box.insert(tk.END, updated_text)
+            except Exception:
+                return
+
+        self.last_additional_info_output_block = completed_block
+
+    def show_additional_info_form(self):
+        self.additional_info_visible = True
+
+        def update():
+            try:
+                if hasattr(self, "final_card_outer"):
+                    self.additional_info_outer.pack(fill=tk.X, pady=(0, 8), before=self.final_card_outer)
+                else:
+                    self.additional_info_outer.pack(fill=tk.X, pady=(0, 8))
+            except Exception:
+                self.additional_info_outer.pack(fill=tk.X, pady=(0, 8))
+
+            for entry in self.additional_info_entries.values():
+                self.validate_additional_info_entry(entry)
+
+        self.root.after(0, update)
+
+    def hide_additional_info_form(self, clear_values=False):
+        self.additional_info_visible = False
+        self.last_additional_info_output_block = ""
+
+        def update():
+            if clear_values:
+                for entry in self.additional_info_entries.values():
+                    entry.delete(0, tk.END)
+                    self.validate_additional_info_entry(entry)
+
+            try:
+                self.additional_info_outer.pack_forget()
+            except Exception:
+                pass
+
+        self.root.after(0, update)
+
+    def get_additional_info_text_from_ui(self):
+        return self.get_completed_additional_info_block()
+
+    def maybe_show_additional_info_for_codes(self, codes):
+        normalized_codes = {self.normalize_dental_code(code) for code in codes}
+        normalized_codes.discard("")
+
+        if normalized_codes.intersection(ADDITIONAL_INFO_TRIGGER_CODES):
+            self.show_additional_info_form()
+
+    def build_output_area(self, parent):
+        final_body, self.final_card_outer = self.create_panel(parent, "Final Output")
+        self.final_output_box = scrolledtext.ScrolledText(
+            final_body,
+            height=22,
+            wrap=tk.WORD,
+            bg="white",
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
+            font=("Consolas", 9),
+            relief=tk.FLAT,
+            bd=0,
+        )
+        self.final_output_box.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        raw_body, self.raw_card_outer = self.create_panel(parent, "Raw / Extracted Data")
+        self.extracted_data_box = scrolledtext.ScrolledText(
+            raw_body,
+            height=12,
+            wrap=tk.WORD,
+            bg="#f8fafc",
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
+            font=("Consolas", 8),
+            relief=tk.FLAT,
+            bd=0,
+        )
+        self.extracted_data_box.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.raw_card_outer.pack_forget()
+
+    def build_footer(self, parent):
+        footer = tk.Frame(parent, bg=self.colors["bg"])
+        footer.pack(fill=tk.X, pady=(0, 6))
+
+        self.footer_status = tk.Label(
+            footer,
+            text="Ready.",
+            bg=self.colors["bg"],
+            fg="white",
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=470,
+            font=("Segoe UI", 8),
+        )
+        self.footer_status.pack(fill=tk.X)
+
+    def create_card(self, parent, title, subtitle=""):
+        body, _outer = self.create_panel(parent, title)
+        return body
+
+    def create_action_button(self, parent, text, command, bg, fg, width=12, state=tk.NORMAL):
+        return tk.Button(
+            parent,
+            text=text,
+            width=width,
+            bg=bg,
+            fg=fg,
+            activebackground=self.colors.get("primary_hover", bg),
+            activeforeground=fg,
+            disabledforeground="#94a3b8",
+            relief=tk.FLAT,
+            bd=0,
+            padx=6,
+            pady=5,
+            font=("Segoe UI", 8, "bold"),
+            cursor="hand2",
+            command=command,
+            state=state,
+        )
+
+    def set_status(self, message, level="info"):
+        def update():
+            if hasattr(self, "footer_status"):
+                self.footer_status.config(text=message)
+            if hasattr(self, "status_line"):
+                prefix = {
+                    "info": "VisionDocs - Ready",
+                    "success": "VisionDocs - Running",
+                    "warning": "VisionDocs - Action Needed",
+                    "danger": "VisionDocs - Stopped",
+                }.get(level, "VisionDocs")
+                self.status_line.config(text=prefix)
+
+        self.root.after(0, update)
+
+    def update_claim_status_display(self, claim_data=None):
+        """Claim status is no longer displayed in the main UI.
+
+        It is shown inside the CPT/procedure selector popup instead.
+        This method remains as a safe no-op because existing claim flow calls it.
+        """
+        return
 
     def set_text_box(self, widget, text):
         def update():
@@ -346,9 +1256,93 @@ class OneViewWatcherApp:
 
         self.root.after(0, update)
 
+    def append_text_box(self, widget, text):
+        def update():
+            current = widget.get("1.0", "end-1c")
+            if current.strip():
+                widget.insert(tk.END, "\n\n" + text)
+            else:
+                widget.insert(tk.END, text)
+
+        self.root.after(0, update)
+
     def append_log(self, message):
         timestamp = time.strftime("%H:%M:%S")
         print(f"[{timestamp}] {message}", flush=True)
+
+    # =========================
+    # PROVIDER CONCERN
+    # =========================
+
+    def show_provider_concern_popup(self):
+        popup = tk.Toplevel(self.root)
+        popup.title("Provider's Concern")
+        popup.configure(bg="white")
+        popup.attributes("-topmost", True)
+        popup.resizable(False, False)
+        popup.grab_set()
+
+        tk.Label(
+            popup,
+            text="What is the provider's concern",
+            bg="white",
+            fg=self.colors["text"],
+            font=("Segoe UI", 12, "bold"),
+        ).pack(padx=20, pady=(18, 6))
+
+        button_area = tk.Frame(popup, bg="white")
+        button_area.pack(padx=20, pady=(10, 20), fill=tk.X)
+
+        def choose(value):
+            self.select_provider_concern(value)
+            self.safe_destroy_popup(popup)
+
+        tk.Button(
+            button_area,
+            text="Eligibility",
+            width=20,
+            bg=self.colors["secondary"],
+            fg=self.colors["text"],
+            relief=tk.FLAT,
+            padx=8,
+            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: choose("Eligibility"),
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Button(
+            button_area,
+            text="Claims",
+            width=12,
+            bg=self.colors["primary"],
+            fg="white",
+            relief=tk.FLAT,
+            padx=8,
+            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: choose("Claims"),
+        ).pack(side=tk.LEFT)
+
+        popup.geometry("385x145")
+        popup.update_idletasks()
+        self.center_popup(popup)
+        popup.focus_force()
+        popup.protocol("WM_DELETE_WINDOW", lambda: self.safe_destroy_popup(popup))
+
+    def safe_destroy_popup(self, popup):
+        try:
+            popup.grab_release()
+        except Exception:
+            pass
+        popup.destroy()
+
+    def center_popup(self, popup):
+        popup.update_idletasks()
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        x = int((screen_width / 2) - (popup.winfo_width() / 2))
+        y = int((screen_height / 2) - (popup.winfo_height() / 2))
+        popup.geometry(f"+{x}+{y}")
 
     # =========================
     # HOTKEY / COPY
@@ -358,7 +1352,9 @@ class OneViewWatcherApp:
         def on_press(key):
             try:
                 if key == keyboard.Key.f2:
-                    self.root.after(0, lambda: self.copy_current_final_output("F2"))
+                    self.root.after(0, self.finalize_to_notepad)
+                elif key == keyboard.Key.f8:
+                    self.root.after(0, self.toggle_capture_notes_mode)
             except Exception as e:
                 self.append_log(f"Hotkey error: {type(e).__name__}: {e}")
 
@@ -366,7 +1362,13 @@ class OneViewWatcherApp:
         self.hotkey_listener.daemon = True
         self.hotkey_listener.start()
 
-        self.append_log("Global hotkey enabled: F2")
+        self.append_log("Global hotkey enabled: F2 finalize to Notepad, F8 capture notes")
+
+    def get_caller_info_text_from_ui(self):
+        try:
+            return self.callers_info_box.get("1.0", "end-1c").strip()
+        except Exception:
+            return ""
 
     def get_final_output_text_from_ui(self):
         try:
@@ -380,8 +1382,18 @@ class OneViewWatcherApp:
         except Exception:
             return ""
 
+    def build_combined_final_copy_text(self, final_text=None):
+        caller_info = self.get_caller_info_text_from_ui()
+        final_output = final_text.strip() if final_text is not None else self.get_final_output_text_from_ui()
+
+        if self.provider_concern == "Claims":
+            final_output = self.add_completed_additional_info_to_text(final_output)
+
+        sections = [section for section in [caller_info, final_output] if section]
+        return "\n\n".join(sections)
+
     def copy_current_final_output(self, source="button"):
-        text = self.get_final_output_text_from_ui()
+        text = self.build_combined_final_copy_text()
 
         if not text:
             system_modal_info("No Data", "No final output is available yet.")
@@ -392,9 +1404,360 @@ class OneViewWatcherApp:
         self.last_clipboard_text = text
 
         if source == "F2":
-            self.append_log("F2 pressed. Current Final Output copied to clipboard.")
+            self.append_log("F2 pressed. Callers Information + Final Output prepared.")
+            self.set_status("Finalized documentation using F2.", "success")
         else:
-            self.append_log("Current Final Output copied to clipboard.")
+            self.append_log("Callers Information + Final Output prepared.")
+            self.set_status("Prepared Callers Information + Final Output.", "success")
+
+    def finalize_to_notepad(self):
+        """Copy the final documentation, replace all text in an open Notepad window, then paste."""
+        # If the agent forgot to press F8 again, move captured notes to Additional notes first.
+        self.commit_capture_notes_to_final_output(hide_after=True)
+        text = self.build_combined_final_copy_text()
+
+        if not text:
+            system_modal_info("No Data", "No final output is available yet.")
+            return
+
+        pyperclip.copy(text)
+        self.last_final_output_text = text
+        self.last_clipboard_text = text
+
+        hwnd = self.find_notepad_window()
+        if not hwnd:
+            system_modal_info(
+                "Notepad Not Found",
+                "Open Notepad first, then press F2 again. VisionDocs will replace the Notepad content automatically.",
+            )
+            self.set_status("Notepad not found. Documentation copied to clipboard.", "warning")
+            self.append_log("F2 pressed, but no Notepad window was found. Text copied to clipboard only.")
+            return
+
+        try:
+            self.bring_window_to_front(hwnd)
+            time.sleep(0.25)
+
+            kb = keyboard.Controller()
+
+            # Replace existing Notepad content instead of appending.
+            # Ctrl+A selects all text in Notepad, Delete clears it, Ctrl+V pastes the latest documentation.
+            with kb.pressed(keyboard.Key.ctrl):
+                kb.press("a")
+                kb.release("a")
+
+            time.sleep(0.05)
+            kb.press(keyboard.Key.delete)
+            kb.release(keyboard.Key.delete)
+
+            time.sleep(0.05)
+            with kb.pressed(keyboard.Key.ctrl):
+                kb.press("v")
+                kb.release("v")
+
+            try:
+                pyperclip.copy("")
+                self.last_clipboard_text = ""
+            except Exception:
+                pass
+
+            self.clear_capture_notes_state(hide=True)
+            self.append_log("F2 pressed. Documentation replaced the current Notepad content. Clipboard and captured notes cleared.")
+            self.set_status("Finalized. Notepad content replaced. Clipboard cleared.", "success")
+        except Exception as e:
+            self.append_log(f"Notepad paste warning: {type(e).__name__}: {e}")
+            system_modal_info(
+                "Paste Warning",
+                "The documentation was copied to clipboard, but VisionDocs could not replace the Notepad content automatically.",
+            )
+            self.set_status("Documentation copied to clipboard. Auto-replace failed.", "warning")
+
+    def find_notepad_window(self):
+        """Return the first visible Notepad window handle, if available."""
+        try:
+            user32 = ctypes.windll.user32
+            matches = []
+
+            EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+            def callback(hwnd, _lparam):
+                try:
+                    if not user32.IsWindowVisible(hwnd):
+                        return True
+
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length <= 0:
+                        return True
+
+                    title_buffer = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, title_buffer, length + 1)
+                    title = title_buffer.value.strip()
+
+                    class_buffer = ctypes.create_unicode_buffer(256)
+                    user32.GetClassNameW(hwnd, class_buffer, 256)
+                    class_name = class_buffer.value.strip()
+
+                    haystack = f"{title} {class_name}".lower()
+                    if "notepad" in haystack:
+                        matches.append(hwnd)
+                except Exception:
+                    pass
+                return True
+
+            user32.EnumWindows(EnumWindowsProc(callback), 0)
+            return matches[0] if matches else None
+        except Exception as e:
+            self.append_log(f"Find Notepad warning: {type(e).__name__}: {e}")
+            return None
+
+    def bring_window_to_front(self, hwnd):
+        user32 = ctypes.windll.user32
+        SW_RESTORE = 9
+        try:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        except Exception:
+            pass
+        user32.SetForegroundWindow(hwnd)
+
+    def toggle_capture_notes_mode(self):
+        """F8: start capture mode, or stop it and send notes to Additional notes."""
+        if not self.capture_notes_active:
+            self.start_capture_notes_mode()
+            return
+
+        committed = self.commit_capture_notes_to_final_output(hide_after=True)
+        self.capture_notes_active = False
+        if committed:
+            self.set_status("Captured notes added to Additional notes.", "success")
+        else:
+            self.set_status("F8 capture mode stopped. No captured notes were added.", "warning")
+
+    def start_capture_notes_mode(self):
+        self.capture_notes_active = True
+        self.capture_candidate_text = ""
+        self.capture_candidate_time = 0.0
+        self.last_captured_highlight = ""
+        self.capture_notes_seen = set()
+        self.capture_notes_items = []
+
+        try:
+            pyperclip.copy("")
+            self.last_clipboard_text = ""
+        except Exception:
+            pass
+
+        def update():
+            try:
+                # Remove from layout first so repacking never creates a blank spacer.
+                self.capture_notes_outer.pack_forget()
+            except Exception:
+                pass
+
+            try:
+                self.capture_notes_box.delete("1.0", tk.END)
+                self.capture_notes_status_label.config(
+                    text=(
+                        "Capture mode is ON. Highlight text in OneView and it will appear here. "
+                        "Press F8 again to add these notes to Additional notes."
+                    )
+                )
+            except Exception:
+                pass
+
+            try:
+                if hasattr(self, "callers_info_outer"):
+                    self.capture_notes_outer.pack(fill=tk.X, pady=(0, 8), before=self.callers_info_outer)
+                else:
+                    self.capture_notes_outer.pack(fill=tk.X, pady=(0, 8))
+                self.capture_notes_outer.lift()
+                self.capture_notes_visible = True
+                self.root.update_idletasks()
+                self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+                self.canvas.yview_moveto(0)
+            except Exception as e:
+                self.append_log(f"Capture notes panel display warning: {type(e).__name__}: {e}")
+
+        self.root.after(0, update)
+        self.append_log("F8 capture mode started. Clipboard cleared.")
+        self.set_status("F8 capture mode ON. Highlight OneView text to capture notes.", "success")
+
+    def get_capture_notes_text_from_ui(self):
+        try:
+            return self.capture_notes_box.get("1.0", "end-1c").strip()
+        except Exception:
+            return ""
+
+    def clear_capture_notes_state(self, hide=True):
+        self.capture_notes_active = False
+        self.capture_notes_items = []
+        self.capture_notes_seen = set()
+        self.capture_candidate_text = ""
+        self.capture_candidate_time = 0.0
+        self.last_captured_highlight = ""
+
+        def update():
+            try:
+                if hasattr(self, "capture_notes_box"):
+                    self.capture_notes_box.delete("1.0", tk.END)
+            except Exception:
+                pass
+
+            if hide:
+                try:
+                    self.capture_notes_outer.pack_forget()
+                    self.capture_notes_visible = False
+                except Exception:
+                    pass
+
+        try:
+            self.root.after(0, update)
+        except Exception:
+            pass
+
+    def format_captured_note_item(self, text):
+        cleaned = self.clean_selected_text(text)
+        if not cleaned:
+            return ""
+
+        lines = cleaned.splitlines()
+        if len(lines) == 1:
+            return f"- {lines[0]}"
+
+        first = f"- {lines[0]}"
+        rest = [f"  {line}" for line in lines[1:]]
+        return "\n".join([first] + rest)
+
+    def append_capture_note_item(self, selected_text):
+        cleaned = self.clean_selected_text(selected_text)
+        if not cleaned:
+            return
+
+        key = re.sub(r"\s+", " ", cleaned).strip().lower()
+        if not key or key in self.capture_notes_seen:
+            return
+
+        self.capture_notes_seen.add(key)
+        self.capture_notes_items.append(cleaned)
+        formatted = self.format_captured_note_item(cleaned)
+        if not formatted:
+            return
+
+        def update():
+            try:
+                # Safety: if capture mode is active, the preview panel must be visible.
+                if not self.capture_notes_visible:
+                    if hasattr(self, "callers_info_outer"):
+                        self.capture_notes_outer.pack(fill=tk.X, pady=(0, 8), before=self.callers_info_outer)
+                    else:
+                        self.capture_notes_outer.pack(fill=tk.X, pady=(0, 8))
+                    self.capture_notes_visible = True
+
+                current = self.capture_notes_box.get("1.0", "end-1c").strip()
+                if current:
+                    self.capture_notes_box.insert(tk.END, "\n" + formatted)
+                else:
+                    self.capture_notes_box.insert(tk.END, formatted)
+                self.capture_notes_box.see(tk.END)
+
+                count = len(self.capture_notes_seen)
+                self.capture_notes_status_label.config(
+                    text=f"Capture mode is ON. Captured {count} item(s). Press F8 again to add these notes to Additional notes."
+                )
+                self.root.update_idletasks()
+                self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            except Exception as e:
+                self.append_log(f"Captured notes UI update warning: {type(e).__name__}: {e}")
+
+        self.root.after(0, update)
+
+        preview = cleaned.replace("\n", " ")
+        if len(preview) > 80:
+            preview = preview[:80] + "..."
+        self.append_log(f"Captured highlighted note ({len(cleaned)} chars): {preview}")
+
+    def monitor_capture_notes_highlight(self):
+        if not self.capture_notes_active:
+            return
+
+        try:
+            selected_text = self.driver.execute_script(
+                "return window.getSelection ? window.getSelection().toString() : '';"
+            )
+        except WebDriverException:
+            return
+
+        selected_text = self.clean_selected_text(selected_text)
+
+        if not selected_text:
+            self.capture_candidate_text = ""
+            self.capture_candidate_time = 0.0
+            return
+
+        normalized = re.sub(r"\s+", " ", selected_text).strip().lower()
+        if normalized in self.capture_notes_seen:
+            return
+
+        now = time.time()
+
+        if selected_text != self.capture_candidate_text:
+            self.capture_candidate_text = selected_text
+            self.capture_candidate_time = now
+            return
+
+        if now - self.capture_candidate_time < HIGHLIGHT_COPY_DEBOUNCE_SECONDS:
+            return
+
+        self.append_capture_note_item(selected_text)
+        self.last_captured_highlight = selected_text
+
+    def append_text_under_additional_notes(self, base_text, notes_text):
+        base_text = str(base_text or "").rstrip()
+        notes_text = str(notes_text or "").strip()
+
+        if not notes_text:
+            return base_text
+
+        marker = "Additional notes:"
+
+        if marker not in base_text:
+            if base_text:
+                return base_text + "\n\n" + marker + "\n" + notes_text
+            return marker + "\n" + notes_text
+
+        before, after = base_text.split(marker, 1)
+        after = after.strip()
+
+        if after:
+            new_after = after + "\n" + notes_text
+        else:
+            new_after = notes_text
+
+        return before.rstrip() + "\n" + marker + "\n" + new_after
+
+    def commit_capture_notes_to_final_output(self, hide_after=True):
+        notes_text = self.get_capture_notes_text_from_ui()
+        if not notes_text:
+            if hide_after:
+                self.clear_capture_notes_state(hide=True)
+            return False
+
+        try:
+            current_final = self.final_output_box.get("1.0", "end-1c")
+            updated_final = self.append_text_under_additional_notes(current_final, notes_text)
+            self.final_output_box.delete("1.0", tk.END)
+            self.final_output_box.insert(tk.END, updated_final)
+            self.last_final_output_text = updated_final
+        except Exception as e:
+            self.append_log(f"Captured notes commit warning: {type(e).__name__}: {e}")
+            return False
+
+        if hide_after:
+            self.clear_capture_notes_state(hide=True)
+        else:
+            self.capture_notes_active = False
+
+        self.append_log("Captured notes added under Additional notes.")
+        return True
 
     def copy_raw_result(self):
         text = self.get_raw_output_text_from_ui()
@@ -408,6 +1771,7 @@ class OneViewWatcherApp:
 
         pyperclip.copy(text)
         self.append_log("Raw extracted data copied to clipboard.")
+        self.set_status("Raw / Extracted Data copied.", "success")
 
     # =========================
     # AUTO COPY HIGHLIGHT
@@ -421,20 +1785,21 @@ class OneViewWatcherApp:
         self.last_auto_copied_highlight = ""
 
         if self.auto_copy_highlight_enabled:
-            self.auto_copy_btn.config(text="Auto Copy: ON", bg="#99ff99")
+            self.auto_copy_btn.config(text="Auto Copy: ON", bg=self.colors["success"], fg="white")
             note_state = "ON"
         else:
-            self.auto_copy_btn.config(text="Auto Copy: OFF", bg="yellow")
+            self.auto_copy_btn.config(text="Auto Copy: OFF", bg=self.colors["primary"], fg="white")
             note_state = "OFF"
 
         self.auto_copy_note.config(
             text=(
-                f"Note: Auto Copy is {note_state}. When ON, highlighted OneView website text "
-                f"automatically replaces your clipboard. Use 📋 Copy Final / F2 to copy your edited Final Output again."
+                f"Auto Copy Highlight is {note_state}. When ON, selected OneView text may replace your clipboard. "
+                f"Use Copy Final / F2 to copy your edited final documentation again."
             )
         )
 
         self.append_log(f"Auto Copy Highlight toggled {note_state}.")
+        self.set_status(f"Auto Copy Highlight toggled {note_state}.", "info")
 
     def clean_selected_text(self, value):
         text = str(value or "")
@@ -493,6 +1858,7 @@ class OneViewWatcherApp:
             preview = preview[:80] + "..."
 
         self.append_log(f"Auto-copied highlighted text ({len(selected_text)} chars): {preview}")
+        self.set_status("Highlighted OneView text copied. Use F2 to restore final output.", "warning")
 
     # =========================
     # START / STOP
@@ -515,6 +1881,7 @@ class OneViewWatcherApp:
         self.worker_thread.start()
 
         self.append_log("Starting Edge and opening OneView...")
+        self.set_status("Opening OneView. Select Claims or Eligibility when the call starts.", "success")
 
     def stop_bot(self):
         self.stop_event.set()
@@ -524,6 +1891,7 @@ class OneViewWatcherApp:
         self.stop_btn.config(state=tk.DISABLED)
 
         self.append_log("Stop requested.")
+        self.set_status("Stopped. You may start watching again when ready.", "danger")
 
     # =========================
     # SELENIUM DRIVER
@@ -562,6 +1930,7 @@ class OneViewWatcherApp:
             self.append_log("Watching only the original OneView tab.")
             self.append_log("New tabs will be ignored.")
             self.append_log("Auto Copy Highlight is OFF by default.")
+            self.set_status("OneView is open. Select Claims or Eligibility to enable scanning.", "success")
 
             while not self.stop_event.is_set():
                 try:
@@ -574,6 +1943,7 @@ class OneViewWatcherApp:
         except Exception:
             self.append_log("Fatal error:")
             self.append_log(traceback.format_exc())
+            self.set_status("Fatal error. Check terminal logs.", "danger")
 
         finally:
             self.running = False
@@ -644,17 +2014,32 @@ class OneViewWatcherApp:
             return
 
         try:
-            self.driver.switch_to.window(self.target_window_handle)
-        except NoSuchWindowException:
-            self.append_log("Target OneView tab no longer exists.")
-            self.stop_event.set()
+            current_handle = self.driver.current_window_handle
+        except WebDriverException:
+            return
+
+        if current_handle != self.target_window_handle:
+            # Do not force-switch tabs. Pause silently so the browser never jumps focus.
             return
 
         if not self.is_target_tab():
             return
 
         self.monitor_auto_copy_highlight()
+        self.monitor_capture_notes_highlight()
 
+        if not self.provider_concern:
+            return
+
+        if self.provider_concern == "Claims":
+            self.monitor_claim_workflow()
+            return
+
+        if self.provider_concern == "Eligibility":
+            self.monitor_eligibility_workflow()
+            return
+
+    def monitor_claim_workflow(self):
         trigger_text = self.get_text_if_exists(
             xpath=XPATH_TRIGGER_CLAIM_HEADER,
             mode="full_text",
@@ -706,9 +2091,416 @@ class OneViewWatcherApp:
 
         if confirmed:
             self.append_log("User confirmed claim. Extracting...")
+            self.set_status(f"Extracting claim {current_claim_key}...", "success")
             self.process_confirmed_claim()
         else:
             self.append_log("User selected No. Continuing watcher...")
+            self.set_status("Claim skipped. Continuing watcher.", "info")
+
+
+
+    def monitor_eligibility_workflow(self):
+        detector_text = self.get_text_if_exists(
+            xpath=XPATH_ELIGIBILITY_DETECTOR,
+            mode="full_text",
+            field_name="Eligibility Member",
+        )
+
+        if not detector_text:
+            return
+
+        current_member_key = detector_text.strip()
+
+        # Confirm only when the detected member is new or changed.
+        # If OneView moves from the subscriber to a dependent or another member,
+        # the popup appears again because the detector text changed.
+        if current_member_key == self.last_eligibility_member:
+            return
+
+        previous_member_key = self.last_eligibility_member
+        self.last_eligibility_member = current_member_key
+
+        if previous_member_key:
+            self.append_log(f"Eligibility member changed: {previous_member_key} -> {current_member_key}")
+        else:
+            self.append_log(f"Eligibility member detected: {current_member_key}")
+
+        confirmed = system_modal_yes_no(
+            "Confirm Member",
+            f"Detected member:\n\n{current_member_key}\n\nIs this the correct member?",
+        )
+
+        if confirmed:
+            self.append_log("User confirmed eligibility member. Opening Eligibility detail view...")
+            self.set_status("Opening Eligibility detail view...", "success")
+            self.process_confirmed_eligibility(current_member_key)
+        else:
+            self.append_log("User selected No for eligibility member. Continuing watcher...")
+            self.set_status("Eligibility member skipped. Continuing watcher.", "info")
+
+    def process_confirmed_eligibility(self, member_text):
+        self.autofill_callers_information_from_eligibility(member_text)
+        opened = self.open_eligibility_details_view()
+
+        if not opened:
+            self.append_log("Eligibility warning: detail button was not clicked or detail view did not load.")
+            self.set_status("Eligibility detail view was not opened. Check OneView screen.", "warning")
+
+        eligibility_data = self.scrape_eligibility_data()
+        self.current_eligibility_data = eligibility_data
+
+        self.close_eligibility_details_view()
+
+        self.handle_eligibility_data(member_text, eligibility_data)
+
+    def click_xpath_if_exists(self, xpath, description="element", wait_seconds=0.0):
+        end_time = time.time() + max(0.0, wait_seconds)
+
+        while True:
+            try:
+                elements = self.driver.find_elements(By.XPATH, xpath)
+                if elements:
+                    element = elements[0]
+                    try:
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                        time.sleep(0.1)
+                        self.driver.execute_script("arguments[0].click();", element)
+                    except WebDriverException:
+                        element.click()
+
+                    self.append_log(f"Clicked {description}.")
+                    return True
+            except (StaleElementReferenceException, NoSuchElementException, WebDriverException):
+                pass
+
+            if time.time() >= end_time:
+                break
+
+            time.sleep(0.25)
+
+        return False
+
+    def open_eligibility_details_view(self):
+        clicked = self.click_xpath_if_exists(
+            XPATH_ELIGIBILITY_DETAILS_BUTTON,
+            description="Eligibility button",
+            wait_seconds=6,
+        )
+
+        if not clicked:
+            return False
+
+        return self.wait_for_any_eligibility_detail_field(timeout_seconds=10)
+
+    def wait_for_any_eligibility_detail_field(self, timeout_seconds=10):
+        end_time = time.time() + timeout_seconds
+
+        while time.time() < end_time:
+            for field in ELIGIBILITY_FIELDS:
+                value = self.get_text_if_exists(
+                    xpath=field["xpath"],
+                    mode=field.get("mode", "full_text"),
+                    field_name=field["name"],
+                )
+                if value and str(value).strip().lower() != "not found":
+                    return True
+
+            time.sleep(0.35)
+
+        return False
+
+    def close_eligibility_details_view(self):
+        closed = self.click_xpath_if_exists(
+            XPATH_ELIGIBILITY_DETAILS_CLOSE,
+            description="Eligibility close button",
+            wait_seconds=3,
+        )
+
+        if closed:
+            time.sleep(0.4)
+        else:
+            self.append_log("Eligibility close button was not found. Continuing without error.")
+
+    def scrape_eligibility_data(self):
+        data = {}
+
+        for field in ELIGIBILITY_FIELDS:
+            field_name = field["name"]
+            xpath = field["xpath"]
+            mode = field["mode"]
+
+            value = self.get_text_if_exists(
+                xpath=xpath,
+                mode=mode,
+                field_name=field_name,
+            )
+
+            if value and str(value).strip().lower() != "not found":
+                data[field_name] = value.strip()
+            else:
+                data[field_name] = "Not found"
+
+        return data
+
+    def get_available_eligibility_items(self, eligibility_data):
+        items = []
+
+        for field in ELIGIBILITY_FIELDS:
+            label = field["name"]
+            value = str(eligibility_data.get(label, "") or "").strip()
+
+            if not value or value.lower() == "not found":
+                continue
+
+            items.append({"label": label, "value": value})
+
+        return items
+
+    def format_eligibility_raw_data(self, member_text, eligibility_data):
+        lines = []
+        lines.append("Eligibility Information")
+        lines.append("----------------------------------")
+        lines.append(f"Detected Member: {member_text or 'Not found'}")
+        lines.append(f"Provider Concern: {self.provider_concern or 'Not selected'}")
+        lines.append("")
+
+        for key, value in eligibility_data.items():
+            lines.append(f"{key}: {value}")
+
+        return "\n".join(lines)
+
+    def build_eligibility_final_output(self, selected_items=None):
+        selected_items = selected_items or []
+
+        lines = [
+            "Provider concern: Eligibility",
+            "",
+            "Information provided:",
+        ]
+
+        for item in selected_items:
+            label = str(item.get("label", "")).strip()
+            value = str(item.get("value", "")).strip()
+            if label and value:
+                lines.append(f"- {label}: {value}")
+
+        lines.extend(["", "Additional notes:"])
+        return "\n".join(lines)
+
+    def handle_eligibility_data(self, member_text, eligibility_data):
+        extracted_text = self.format_eligibility_raw_data(member_text, eligibility_data)
+        base_final_output_text = self.build_eligibility_final_output([])
+
+        self.last_extracted_text = extracted_text
+        self.last_final_output_text = base_final_output_text
+
+        self.set_text_box(self.extracted_data_box, extracted_text)
+        self.set_text_box(self.final_output_box, base_final_output_text)
+
+        self.append_log("===== ELIGIBILITY DATA CAPTURED =====")
+        self.append_log(f"Detected Member: {member_text}")
+        for key, value in eligibility_data.items():
+            self.append_log(f"{key}: {value}")
+        self.append_log("=====================================")
+
+        available_items = self.get_available_eligibility_items(eligibility_data)
+        self.current_eligibility_items = available_items
+        self.selected_eligibility_items = []
+
+        if not available_items:
+            self.append_log("Eligibility fields were extracted, but no non-empty values were available for selection.")
+            self.set_status("Eligibility data captured, but no values were available for selection.", "warning")
+            return
+
+        selected_items = self.ask_eligibility_info_selection_threadsafe(
+            available_items,
+            preselected_items=self.selected_eligibility_items,
+        )
+        self.apply_eligibility_selected_items(selected_items)
+
+    def make_eligibility_item_key(self, item):
+        return f"{item.get('label', '')}::{item.get('value', '')}"
+
+    def apply_eligibility_selected_items(self, selected_items):
+        self.selected_eligibility_items = selected_items or []
+        final_output_text = self.build_eligibility_final_output(self.selected_eligibility_items)
+
+        self.last_final_output_text = final_output_text
+        combined_copy_text = self.build_combined_final_copy_text(final_text=final_output_text)
+        self.last_clipboard_text = combined_copy_text
+
+        self.set_text_box(self.final_output_box, final_output_text)
+        pyperclip.copy(combined_copy_text)
+
+        self.append_log("Callers Information + selected Eligibility output copied to clipboard.")
+        self.set_status("Eligibility selections documented and copied.", "success")
+
+    def reopen_eligibility_popup(self):
+        if not self.current_eligibility_items:
+            system_modal_info("No Eligibility Data", "No eligibility information has been retrieved yet.")
+            self.set_status("No eligibility information has been retrieved yet.", "warning")
+            return
+
+        selected_items = self.ask_eligibility_info_selection_threadsafe(
+            self.current_eligibility_items,
+            preselected_items=self.selected_eligibility_items,
+        )
+        self.apply_eligibility_selected_items(selected_items)
+
+    def ask_eligibility_info_selection_threadsafe(self, items, preselected_items=None):
+        """Show the Eligibility selection popup.
+
+        This method may be called from either the Selenium worker thread
+        or the Tkinter UI thread. The previous version always used
+        root.after(...) + queue.get(), which deadlocked when the user clicked
+        Reopen Eligibility from the UI thread because the UI thread blocked
+        before the popup could render.
+        """
+        result_queue = queue.Queue(maxsize=1)
+        preselected_items = preselected_items or []
+        result_holder = {"value": None, "set": False}
+
+        def show_popup():
+            popup = tk.Toplevel(self.root)
+            popup.title("Eligibility")
+            popup.configure(bg=self.colors["panel"])
+            popup.attributes("-topmost", True)
+            popup.resizable(False, False)
+            popup.grab_set()
+
+            selected_keys = {self.make_eligibility_item_key(item) for item in preselected_items}
+            button_by_key = {}
+
+            instruction = tk.Label(
+                popup,
+                text="What information did you provide?",
+                bg="white",
+                fg=self.colors["text"],
+                font=("Segoe UI", 12, "bold"),
+                anchor="center",
+            )
+            instruction.pack(fill=tk.X, padx=18, pady=(16, 10))
+
+            info_frame = tk.Frame(popup, bg="white")
+            info_frame.pack(fill=tk.BOTH, expand=True, padx=18, pady=(0, 12))
+
+            def refresh_button(item):
+                key = self.make_eligibility_item_key(item)
+                btn = button_by_key.get(key)
+                if not btn:
+                    return
+
+                if key in selected_keys:
+                    btn.config(bg="#DDEFE7", fg=self.colors["text"], relief=tk.SOLID, bd=1)
+                else:
+                    btn.config(bg="#F8FAFC", fg=self.colors["text"], relief=tk.FLAT, bd=1)
+
+            def toggle_item(item):
+                key = self.make_eligibility_item_key(item)
+                if key in selected_keys:
+                    selected_keys.remove(key)
+                else:
+                    selected_keys.add(key)
+                refresh_button(item)
+
+            for index, item in enumerate(items):
+                label = str(item.get("label", "")).strip()
+                value = str(item.get("value", "")).strip()
+                button_text = f"{label}\n{value}"
+
+                btn = tk.Button(
+                    info_frame,
+                    text=button_text,
+                    width=28,
+                    height=3,
+                    bg="#F8FAFC",
+                    fg=self.colors["text"],
+                    activebackground="#E0F2FE",
+                    activeforeground=self.colors["text"],
+                    justify=tk.CENTER,
+                    wraplength=190,
+                    relief=tk.FLAT,
+                    bd=1,
+                    font=("Segoe UI", 8, "bold"),
+                    command=lambda item=item: toggle_item(item),
+                )
+
+                row = index // 2
+                col = index % 2
+                btn.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
+                button_by_key[self.make_eligibility_item_key(item)] = btn
+                refresh_button(item)
+
+            for col in range(2):
+                info_frame.columnconfigure(col, weight=1)
+
+            action_frame = tk.Frame(popup, bg=self.colors["panel"])
+            action_frame.pack(fill=tk.X, padx=18, pady=(0, 16))
+
+            def finish_with(selected_items):
+                result_holder["value"] = selected_items
+                result_holder["set"] = True
+
+                if result_queue.empty():
+                    result_queue.put(selected_items)
+
+                try:
+                    popup.grab_release()
+                except Exception:
+                    pass
+
+                popup.destroy()
+
+            def done():
+                selected_items = [
+                    item
+                    for item in items
+                    if self.make_eligibility_item_key(item) in selected_keys
+                ]
+                finish_with(selected_items)
+
+            done_btn = tk.Button(
+                action_frame,
+                text="Done",
+                width=18,
+                bg=self.colors["primary"],
+                fg="white",
+                activebackground=self.colors["primary_hover"],
+                activeforeground="white",
+                relief=tk.FLAT,
+                padx=10,
+                pady=8,
+                font=("Segoe UI", 9, "bold"),
+                command=done,
+            )
+            done_btn.pack(anchor="center")
+
+            row_count = max(1, math.ceil(len(items) / 2))
+            estimated_height = min(560, max(230, 105 + (row_count * 72)))
+            popup.geometry(f"520x{estimated_height}")
+            popup.update_idletasks()
+            self.center_popup(popup)
+            popup.lift()
+            popup.focus_force()
+
+            try:
+                popup.attributes("-topmost", True)
+                popup.after(500, lambda: popup.attributes("-topmost", True))
+            except Exception:
+                pass
+
+            popup.protocol("WM_DELETE_WINDOW", done)
+            return popup
+
+        # If this is called from a UI button such as Reopen Eligibility,
+        # do NOT block Tkinter with queue.get(). wait_window keeps Tk events alive.
+        if threading.get_ident() == self.ui_thread_id:
+            popup = show_popup()
+            self.root.wait_window(popup)
+            return result_holder["value"] if result_holder["set"] else []
+
+        self.root.after(0, show_popup)
+        return result_queue.get()
 
     def is_target_tab(self):
         try:
@@ -763,12 +2555,19 @@ class OneViewWatcherApp:
     # =========================
 
     def process_confirmed_claim(self):
+        self.current_claim_data = {}
         self.current_service_lines = []
         self.current_total_line = {}
         self.selected_service_line = None
+        self.selected_service_lines = []
+        self.selected_service_line_indices = set()
         self.selected_procedure_mode = None
+        self.current_advisory_notes = []
+        self.hide_additional_info_form(clear_values=True)
+        self.update_another_code_button_state()
 
         claim_data = self.scrape_claim_data()
+        self.current_claim_data = claim_data
 
         service_lines, total_line = self.scrape_service_line_table()
         self.current_service_lines = service_lines
@@ -782,24 +2581,22 @@ class OneViewWatcherApp:
             self.append_log("Total row not found.")
 
         if self.current_service_lines:
-            selection = self.ask_procedure_selection_threadsafe(self.current_service_lines)
+            selection = self.ask_procedure_selection_threadsafe(
+                self.current_service_lines,
+                excluded_indices=set(),
+                popup_subtitle="Select the code the caller is asking about.",
+            )
 
             if selection is None:
                 self.append_log("Procedure selection cancelled. No final output created.")
+                self.set_status("Procedure selection cancelled. No final output created.", "warning")
                 return
 
-            if selection == "ALL":
-                self.selected_procedure_mode = "ALL"
-                self.selected_service_line = None
-                self.append_log("User selected: All Procedures")
-            else:
-                self.selected_procedure_mode = "SINGLE"
-                self.selected_service_line = self.current_service_lines[selection]
-                proc = self.selected_service_line.get("Proc/Mod", "Unknown")
-                self.append_log(f"User selected procedure: {proc}")
+            self.apply_procedure_selection(selection, from_another_code=False)
         else:
             self.selected_procedure_mode = "ALL"
             self.selected_service_line = None
+            self.selected_service_lines = []
             self.append_log("No service lines found. CPT popup skipped.")
 
             system_modal_info(
@@ -809,45 +2606,178 @@ class OneViewWatcherApp:
             )
 
         self.handle_scraped_data(claim_data)
+        self.update_another_code_button_state()
+
+    def apply_procedure_selection(self, selection, from_another_code=False):
+        if selection == "ALL":
+            remaining_indices = self.get_remaining_service_line_indices()
+
+            if from_another_code and remaining_indices:
+                for index in remaining_indices:
+                    self.add_selected_service_line(index)
+                self.selected_procedure_mode = "MULTI"
+                self.append_log("User selected all remaining procedures.")
+            else:
+                self.selected_procedure_mode = "ALL"
+                self.selected_service_line = None
+                self.selected_service_lines = list(self.current_service_lines)
+                self.selected_service_line_indices = set(range(len(self.current_service_lines)))
+                self.append_log("User selected: All Procedures")
+
+            self.show_advisory_for_selected_codes()
+            self.maybe_show_additional_info_for_codes(self.get_selected_procedure_codes())
+            return
+
+        if isinstance(selection, int):
+            self.add_selected_service_line(selection)
+            selected_row = self.current_service_lines[selection]
+            proc = self.get_display_proc_code(selected_row)
+            self.append_log(f"User selected procedure: {proc}")
+            self.show_advisory_for_codes([proc])
+            self.maybe_show_additional_info_for_codes([proc])
+
+    def add_selected_service_line(self, index):
+        if index < 0 or index >= len(self.current_service_lines):
+            return
+
+        if index in self.selected_service_line_indices:
+            return
+
+        self.selected_service_line_indices.add(index)
+        row = self.current_service_lines[index]
+        self.selected_service_lines.append(row)
+
+        if len(self.selected_service_lines) == 1:
+            self.selected_procedure_mode = "SINGLE"
+            self.selected_service_line = row
+        else:
+            self.selected_procedure_mode = "MULTI"
+            self.selected_service_line = None
+
+    def handle_another_code(self):
+        if not self.current_service_lines:
+            system_modal_info("No Claim Data", "No service line data is available yet.")
+            return
+
+        remaining_indices = self.get_remaining_service_line_indices()
+
+        if not remaining_indices:
+            system_modal_info("No More Codes", "All available CPT/procedure codes have already been selected.")
+            self.update_another_code_button_state()
+            return
+
+        selection = self.ask_procedure_selection_threadsafe(
+            self.current_service_lines,
+            excluded_indices=self.selected_service_line_indices,
+            popup_subtitle="Select another code. Previously selected codes are hidden.",
+        )
+
+        if selection is None:
+            self.append_log("Another Code selection cancelled.")
+            self.set_status("Another Code selection cancelled.", "info")
+            return
+
+        self.apply_procedure_selection(selection, from_another_code=True)
+        self.handle_scraped_data(self.current_claim_data)
+        self.update_another_code_button_state()
+
+    def get_remaining_service_line_indices(self):
+        return [
+            index
+            for index in range(len(self.current_service_lines))
+            if index not in self.selected_service_line_indices
+        ]
+
+    def update_another_code_button_state(self):
+        def update():
+            try:
+                remaining = self.get_remaining_service_line_indices()
+                can_use = bool(self.current_service_lines) and bool(remaining)
+                state = tk.NORMAL if can_use else tk.DISABLED
+                self.another_code_btn.config(state=state)
+            except Exception:
+                pass
+
+        self.root.after(0, update)
 
     # =========================
     # CUSTOM PROCEDURE POPUP
     # =========================
 
-    def ask_procedure_selection_threadsafe(self, service_lines):
+    def get_claim_status_for_popup(self):
+        """Return the current claim status for the CPT/procedure popup."""
+        status = ""
+        try:
+            status = str(self.current_claim_data.get("Claim Status", "") or "").strip()
+        except Exception:
+            status = ""
+
+        if self.is_not_found_or_blank(status):
+            return "--"
+
+        return status
+
+    def ask_procedure_selection_threadsafe(self, service_lines, excluded_indices=None, popup_subtitle=""):
+        """Show the CPT/procedure selector popup.
+
+        Safe for both Selenium worker-thread calls and main UI-thread calls
+        such as the Another Code button. The previous queue.get() behavior
+        could freeze the UI when called directly from a Tkinter button.
+        """
         result_queue = queue.Queue(maxsize=1)
+        excluded_indices = excluded_indices or set()
+        result_holder = {"value": None, "set": False}
 
         def show_popup():
             popup = tk.Toplevel(self.root)
             popup.title("Select Procedure")
-            popup.configure(bg="white")
+            popup.configure(bg=self.colors["panel"])
             popup.attributes("-topmost", True)
             popup.resizable(False, False)
-
             popup.grab_set()
 
             title_label = tk.Label(
                 popup,
                 text="Which procedure is the caller inquiring?",
-                bg="white",
-                fg="black",
-                font=("Segoe UI", 11, "bold"),
+                bg=self.colors["panel"],
+                fg="white",
+                font=("Segoe UI", 12, "bold"),
             )
-            title_label.pack(padx=15, pady=(15, 5))
+            title_label.pack(padx=18, pady=(18, 4))
+
+            visible_items = [
+                (idx, row)
+                for idx, row in enumerate(service_lines)
+                if idx not in excluded_indices
+            ]
 
             count_label = tk.Label(
                 popup,
-                text=f"Number of CPT Code: {len(service_lines)}",
-                bg="white",
-                fg="black",
+                text=f"Available CPT Code(s): {len(visible_items)} of {len(service_lines)}",
+                bg=self.colors["panel"],
+                fg="#DFF6FF",
                 font=("Segoe UI", 10),
             )
-            count_label.pack(padx=15, pady=(0, 10))
+            count_label.pack(padx=18, pady=(0, 3))
 
-            button_area = tk.Frame(popup, bg="white")
-            button_area.pack(padx=15, pady=(0, 12))
+            if popup_subtitle:
+                tk.Label(
+                    popup,
+                    text=popup_subtitle,
+                    bg=self.colors["panel"],
+                    fg="#DFF6FF",
+                    font=("Segoe UI", 9),
+                ).pack(padx=18, pady=(0, 10))
+            else:
+                tk.Frame(popup, bg=self.colors["panel"], height=8).pack()
+
+            button_area = tk.Frame(popup, bg=self.colors["panel"])
+            button_area.pack(padx=18, pady=(0, 12))
 
             def choose(value):
+                result_holder["value"] = value
+                result_holder["set"] = True
+
                 if result_queue.empty():
                     result_queue.put(value)
 
@@ -858,31 +2788,39 @@ class OneViewWatcherApp:
 
                 popup.destroy()
 
-            for idx, row in enumerate(service_lines):
-                proc = row.get("Proc/Mod", "").strip() or f"Line {idx + 1}"
+            for visual_idx, (original_idx, row) in enumerate(visible_items):
+                proc = self.get_display_proc_code(row) or f"Line {original_idx + 1}"
 
-                row_index = idx // MAX_CPT_BUTTONS_PER_ROW
-                col_index = idx % MAX_CPT_BUTTONS_PER_ROW
+                row_index = visual_idx // MAX_CPT_BUTTONS_PER_ROW
+                col_index = visual_idx % MAX_CPT_BUTTONS_PER_ROW
 
                 btn = tk.Button(
                     button_area,
                     text=proc,
                     width=14,
-                    bg="#f0f0f0",
-                    fg="black",
-                    command=lambda i=idx: choose(i),
+                    bg="#0C4A6E",
+                    fg="white",
+                    activebackground="#075985",
+                    relief=tk.FLAT,
+                    font=("Segoe UI", 9, "bold"),
+                    command=lambda i=original_idx: choose(i),
                 )
                 btn.grid(row=row_index, column=col_index, padx=4, pady=4)
 
-            action_frame = tk.Frame(popup, bg="white")
-            action_frame.pack(padx=15, pady=(0, 15))
+            action_frame = tk.Frame(popup, bg=self.colors["panel"])
+            action_frame.pack(padx=18, pady=(0, 18))
 
+            all_text = "All Remaining Procedures" if excluded_indices else "All Procedures"
             all_btn = tk.Button(
                 action_frame,
-                text="All Procedures",
-                width=18,
-                bg="yellow",
-                fg="black",
+                text=all_text,
+                width=22,
+                bg=self.colors["primary"],
+                fg="white",
+                activebackground=self.colors["primary_hover"],
+                activeforeground="white",
+                relief=tk.FLAT,
+                font=("Segoe UI", 9, "bold"),
                 command=lambda: choose("ALL"),
             )
             all_btn.pack(side=tk.LEFT, padx=(0, 8))
@@ -891,27 +2829,35 @@ class OneViewWatcherApp:
                 action_frame,
                 text="Cancel",
                 width=14,
+                bg=self.colors["secondary"],
+                fg=self.colors["text"],
+                relief=tk.FLAT,
+                font=("Segoe UI", 9, "bold"),
                 command=lambda: choose(None),
             )
             cancel_btn.pack(side=tk.LEFT)
 
-            rows_needed = max(1, math.ceil(len(service_lines) / MAX_CPT_BUTTONS_PER_ROW))
-            cols_needed = min(MAX_CPT_BUTTONS_PER_ROW, max(1, len(service_lines)))
+            claim_status = self.get_claim_status_for_popup()
+            status_fg = "#FDE68A" if str(claim_status).strip().lower() == "denied" else "#DFF6FF"
+            status_label = tk.Label(
+                popup,
+                text=f"Claim status: {claim_status}",
+                bg=self.colors["panel"],
+                fg=status_fg,
+                font=("Segoe UI", 9, "bold"),
+                anchor="center",
+            )
+            status_label.pack(padx=18, pady=(0, 14))
 
-            estimated_width = max(420, cols_needed * 125)
-            estimated_height = 155 + (rows_needed * 43)
+            rows_needed = max(1, math.ceil(max(1, len(visible_items)) / MAX_CPT_BUTTONS_PER_ROW))
+            cols_needed = min(MAX_CPT_BUTTONS_PER_ROW, max(1, len(visible_items)))
+
+            estimated_width = max(480, cols_needed * 130)
+            estimated_height = 220 + (rows_needed * 45)
 
             popup.geometry(f"{estimated_width}x{estimated_height}")
-
             popup.update_idletasks()
-
-            screen_width = popup.winfo_screenwidth()
-            screen_height = popup.winfo_screenheight()
-
-            x = int((screen_width / 2) - (popup.winfo_width() / 2))
-            y = int((screen_height / 2) - (popup.winfo_height() / 2))
-
-            popup.geometry(f"+{x}+{y}")
+            self.center_popup(popup)
             popup.lift()
             popup.focus_force()
 
@@ -922,6 +2868,14 @@ class OneViewWatcherApp:
                 pass
 
             popup.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+            return popup
+
+        # If this is called from the UI button Another Code, avoid queue.get()
+        # because that blocks Tkinter and prevents the popup from rendering.
+        if threading.get_ident() == self.ui_thread_id:
+            popup = show_popup()
+            self.root.wait_window(popup)
+            return result_holder["value"] if result_holder["set"] else None
 
         self.root.after(0, show_popup)
         return result_queue.get()
@@ -1076,8 +3030,36 @@ class OneViewWatcherApp:
 
         return text
 
+    def ensure_claim_info_accordion_open(self):
+        """Open the claim information accordion only when the DCN row is not visible yet."""
+        try:
+            existing_dcn = self.get_text_if_exists(
+                xpath=XPATH_CLAIM_DCN,
+                mode="full_text",
+                field_name="DCN",
+            )
+
+            if existing_dcn:
+                return True
+
+            clicked = self.click_xpath_if_exists(
+                XPATH_CLAIM_INFO_ACCORDION_OPENER,
+                description="claim information accordion",
+                wait_seconds=2,
+            )
+
+            if clicked:
+                time.sleep(0.4)
+
+            return clicked
+        except Exception as e:
+            self.append_log(f"Claim information accordion warning: {type(e).__name__}: {e}")
+            return False
+
     def scrape_claim_data(self):
         data = {}
+
+        self.ensure_claim_info_accordion_open()
 
         for field in SCRAPE_FIELDS:
             field_name = field["name"]
@@ -1090,9 +3072,200 @@ class OneViewWatcherApp:
                 field_name=field_name,
             )
 
+            if field_name == "DCN":
+                raw_dcn_text = value or ""
+                data["DCN Raw"] = raw_dcn_text if raw_dcn_text else "Not found"
+                data["DCN"] = self.extract_dcn(raw_dcn_text) if raw_dcn_text else "Not found"
+                data["Claim Status"] = self.extract_claim_status(raw_dcn_text) if raw_dcn_text else "Not found"
+                continue
+
             data[field_name] = value if value else "Not found"
 
+        if "Claim Status" not in data:
+            data["Claim Status"] = "Not found"
+
         return data
+
+    def extract_dcn(self, value):
+        text = str(value or "").replace("\xa0", " ").strip()
+
+        match = re.search(r"\b[A-Z]\d{8,}\b", text, flags=re.IGNORECASE)
+        if match:
+            return match.group(0).upper()
+
+        first_part = re.split(r"\s+-\s+|\s+Claim:\s+", text, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        return first_part
+
+    def extract_claim_status(self, value):
+        text = re.sub(r"\s+", " ", str(value or "").replace("\xa0", " ")).strip()
+        if not text:
+            return ""
+
+        match = re.search(
+            r"^[A-Z]\d{8,}\s*-\s*(.+?)(?=\s+Claim:|\s+Payment:|\s+Indicator:|$)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()
+
+        parts = re.split(r"\s+Claim:\s+", text, maxsplit=1, flags=re.IGNORECASE)
+        if parts:
+            status_part = re.split(r"\s*-\s*", parts[0], maxsplit=1)
+            if len(status_part) > 1:
+                return status_part[1].strip()
+
+        return ""
+
+    def parse_patient_name_from_member_text(self, value):
+        text = str(value or "").replace("\xa0", " ").strip()
+        if not text:
+            return ""
+        return text.split("|")[0].strip()
+
+    def is_not_found_or_blank(self, value):
+        text = str(value or "").strip()
+        return not text or text.lower() == "not found"
+
+    def scrape_rendering_provider_address(self):
+        try:
+            trigger_elements = self.driver.find_elements(By.XPATH, XPATH_RENDERING_ADDRESS_POPOVER_TRIGGER)
+            if trigger_elements:
+                trigger = trigger_elements[0]
+                try:
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
+                    time.sleep(0.1)
+                    self.driver.execute_script("arguments[0].click();", trigger)
+                except WebDriverException:
+                    try:
+                        trigger.click()
+                    except Exception:
+                        pass
+
+                time.sleep(0.35)
+
+            address = self.get_text_if_exists(
+                xpath=XPATH_RENDERING_ADDRESS_VALUE,
+                mode="full_text",
+                field_name="Provider Address",
+            )
+
+            return address.strip() if address else ""
+
+        except Exception as e:
+            self.append_log(f"Provider address warning: {type(e).__name__}: {e}")
+            return ""
+
+    def get_caller_info_lines(self):
+        text = self.get_caller_info_text_from_ui()
+        if not text:
+            text = CALLERS_INFO_ELIGIBILITY_TEMPLATE if self.provider_concern == "Eligibility" else CALLERS_INFO_CLAIMS_TEMPLATE
+        return text.splitlines()
+
+    def set_caller_field_if_blank_in_lines(self, lines, label, value):
+        if self.is_not_found_or_blank(value):
+            return lines
+
+        pattern = re.compile(rf"^\s*{re.escape(label)}\s*:\s*(.*)$", flags=re.IGNORECASE)
+
+        for index, line in enumerate(lines):
+            match = pattern.match(line)
+            if not match:
+                continue
+
+            current_value = match.group(1).strip()
+            if not current_value:
+                lines[index] = f"{label}: {str(value).strip()}"
+            return lines
+
+        lines.append(f"{label}: {str(value).strip()}")
+        return lines
+
+    def looks_like_tax_id(self, value):
+        digits = re.sub(r"\D", "", str(value or ""))
+        return len(digits) >= 9
+
+    def resolve_tax_id_and_provider_name(self, claim_data):
+        """Handle OneView sections where TIN and provider name can be read reversed."""
+        tin_value = claim_data.get("TIN", "")
+        provider_value = claim_data.get("Servicing Provider", "")
+
+        if (
+            not self.is_not_found_or_blank(tin_value)
+            and not self.is_not_found_or_blank(provider_value)
+            and not self.looks_like_tax_id(tin_value)
+            and self.looks_like_tax_id(provider_value)
+        ):
+            return provider_value, tin_value
+
+        return tin_value, provider_value
+
+    def autofill_callers_information_from_claim(self, claim_data):
+        try:
+            if self.provider_concern == "Claims":
+                self.apply_caller_template_for_concern("Claims")
+
+            member_text = self.get_text_if_exists(
+                xpath=XPATH_ELIGIBILITY_DETECTOR,
+                mode="full_text",
+                field_name="Eligibility Member",
+            )
+            patient_name = self.parse_patient_name_from_member_text(member_text)
+
+            dob = self.get_text_if_exists(
+                xpath=XPATH_ELIG_DOB,
+                mode="full_text",
+                field_name="DOB",
+            )
+
+            provider_address = self.scrape_rendering_provider_address()
+
+            tax_id_value, provider_name_value = self.resolve_tax_id_and_provider_name(claim_data)
+
+            lines = self.get_caller_info_lines()
+            lines = self.set_caller_field_if_blank_in_lines(lines, "Tax ID", tax_id_value)
+            lines = self.set_caller_field_if_blank_in_lines(lines, "Provider Name", provider_name_value)
+            lines = self.set_caller_field_if_blank_in_lines(lines, "Provider Address", provider_address)
+            lines = self.set_caller_field_if_blank_in_lines(lines, "Patient Name", patient_name)
+            lines = self.set_caller_field_if_blank_in_lines(lines, "DOB", dob)
+
+            updated_text = "\n".join(lines).strip()
+            self.callers_info_box.delete("1.0", tk.END)
+            self.callers_info_box.insert(tk.END, updated_text)
+            self.sync_caller_field_cache_from_ui()
+            self.append_log("Callers Information auto-fill completed for blank fields.")
+
+        except Exception as e:
+            self.append_log(f"Caller information auto-fill warning: {type(e).__name__}: {e}")
+
+    def autofill_callers_information_from_eligibility(self, member_text):
+        try:
+            # Make sure the simplified Eligibility caller template is active.
+            if self.provider_concern == "Eligibility":
+                self.apply_caller_template_for_concern("Eligibility")
+
+            patient_name = self.parse_patient_name_from_member_text(member_text)
+
+            dob = self.get_text_if_exists(
+                xpath=XPATH_ELIG_DOB,
+                mode="full_text",
+                field_name="DOB",
+            )
+
+            lines = self.get_caller_info_lines()
+            lines = self.set_caller_field_if_blank_in_lines(lines, "Patient Name", patient_name)
+            lines = self.set_caller_field_if_blank_in_lines(lines, "DOB", dob)
+
+            updated_text = "\n".join(lines).strip()
+            self.callers_info_box.delete("1.0", tk.END)
+            self.callers_info_box.insert(tk.END, updated_text)
+            self.sync_caller_field_cache_from_ui()
+            self.append_log("Callers Information auto-fill completed for Eligibility blank fields.")
+
+        except Exception as e:
+            self.append_log(f"Eligibility caller information auto-fill warning: {type(e).__name__}: {e}")
+
+
 
     # =========================
     # SERVICE LINE TABLE SCRAPING
@@ -1111,7 +3284,7 @@ class OneViewWatcherApp:
                 has_rows = self.driver.execute_script(
                     """
                     return document.querySelectorAll(
-                        'cigna-service-line tr td[data-test-id="value-startDoS"]'
+                        'cigna-claim-details-dental cigna-service-line tr td[data-test-id="value-dateOfServiceStart"], cigna-service-line tr td[data-test-id="value-dateOfServiceStart"]'
                     ).length > 0;
                     """
                 )
@@ -1150,9 +3323,12 @@ class OneViewWatcherApp:
                     );
                 }
 
-                const rows = Array.from(
-                    document.querySelectorAll("cigna-service-line tr")
-                );
+                const scope = document.querySelector("cigna-claim-details-dental cigna-service-line") ||
+                    document.querySelector("cigna-service-line");
+
+                const rows = scope
+                    ? Array.from(scope.querySelectorAll("tr"))
+                    : Array.from(document.querySelectorAll("cigna-service-line tr"));
 
                 const output = [];
 
@@ -1176,9 +3352,13 @@ class OneViewWatcherApp:
                             : "";
                     }
 
-                    const hasAnyValue = Object.values(rowData).some(
-                        value => cleanText(value) !== ""
-                    );
+                    rowData["__is_total"] = !!row.closest("tfoot") || /total/i.test(cleanText(row.innerText || row.textContent));
+                    rowData["__row_text"] = cleanText(row.innerText || row.textContent);
+
+                    const hasAnyValue = Object.keys(rowData).some(key => {
+                        if (key.startsWith("__")) return false;
+                        return cleanText(rowData[key]) !== "";
+                    });
 
                     if (hasAnyValue) {
                         output.push(rowData);
@@ -1202,10 +3382,12 @@ class OneViewWatcherApp:
                 if self.is_blank_service_line(cleaned_row):
                     continue
 
+                row_text = str(row_data.get("__row_text", "") or "").strip().lower()
+                is_total_row = bool(row_data.get("__is_total")) or row_text.startswith("total")
                 dos_value = cleaned_row.get("DoS", "").strip().lower()
                 proc_value = cleaned_row.get("Proc/Mod", "").strip()
 
-                if dos_value == "total":
+                if is_total_row or dos_value == "total":
                     total_line = cleaned_row
                     continue
 
@@ -1248,10 +3430,11 @@ class OneViewWatcherApp:
         text = re.sub(r"\s+", " ", text).strip()
 
         if col_name == "Proc/Mod":
-            text = re.sub(r"\s*-\s*", "-", text)
-
-        if col_name == "Ded / Copay":
-            text = re.sub(r"\s*/\s*", " / ", text)
+            normalized = self.normalize_dental_code(text)
+            if normalized:
+                description = re.sub(r"^\s*D?\s*\d{4}\s*[-:–—]?\s*", "", text, flags=re.IGNORECASE).strip()
+                description = re.sub(r"\s*[-:–—]\s*", " - ", description).strip(" -")
+                return f"{normalized} - {description}" if description else normalized
 
         if col_name in ["Plan Coins / Paid", "Patient Coins/Amt"]:
             text = re.sub(r"\s*=\s*", " = ", text)
@@ -1264,6 +3447,195 @@ class OneViewWatcherApp:
                 return False
 
         return True
+
+    # =========================
+    # DENTAL ADVISORY
+    # =========================
+
+    def normalize_dental_code(self, value):
+        text = str(value or "").upper().strip()
+
+        match_with_d = re.search(r"\bD\s*(\d{4})\b", text)
+        if match_with_d:
+            return f"D{match_with_d.group(1)}"
+
+        match_number = re.search(r"\b(\d{4})\b", text)
+        if match_number:
+            return f"D{match_number.group(1)}"
+
+        return ""
+
+    def code_to_number(self, code):
+        normalized = self.normalize_dental_code(code)
+        if not normalized:
+            return None
+        return int(normalized[1:])
+
+    def rule_matches_code(self, rule, code):
+        normalized = self.normalize_dental_code(code)
+        if not normalized:
+            return False
+
+        if normalized in rule.get("codes", []):
+            return True
+
+        code_num = self.code_to_number(normalized)
+        if code_num is None:
+            return False
+
+        for start_code, end_code in rule.get("ranges", []):
+            start_num = self.code_to_number(start_code)
+            end_num = self.code_to_number(end_code)
+
+            if start_num is None or end_num is None:
+                continue
+
+            if start_num <= code_num <= end_num:
+                return True
+
+        return False
+
+    def get_dental_advisory_requirements(self, code):
+        normalized = self.normalize_dental_code(code)
+        if not normalized:
+            return []
+
+        override_matches = [
+            rule
+            for rule in DENTAL_ADVISORY_RULES
+            if rule.get("override") and self.rule_matches_code(rule, normalized)
+        ]
+
+        if override_matches:
+            return self.unique_preserve_order(
+                requirement
+                for rule in override_matches
+                for requirement in rule.get("requirements", [])
+            )
+
+        matched_rules = [
+            rule
+            for rule in DENTAL_ADVISORY_RULES
+            if not rule.get("override") and self.rule_matches_code(rule, normalized)
+        ]
+
+        requirements = self.unique_preserve_order(
+            requirement
+            for rule in matched_rules
+            for requirement in rule.get("requirements", [])
+        )
+
+        if normalized in ADDITIONAL_INFO_TRIGGER_CODES:
+            requirements = self.unique_preserve_order(
+                list(requirements)
+                + [
+                    "Is there root canal history needed? (Request in writing)",
+                    "X-rays needed? (Request in writing)",
+                ]
+            )
+
+        return requirements
+
+    def unique_preserve_order(self, values):
+        seen = set()
+        output = []
+
+        for value in values:
+            key = str(value).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            output.append(str(value).strip())
+
+        return output
+
+    def show_advisory_for_selected_codes(self):
+        codes = self.get_selected_procedure_codes()
+        self.show_advisory_for_codes(codes)
+
+    def show_advisory_for_codes(self, codes):
+        normalized_codes = self.unique_preserve_order(
+            self.normalize_dental_code(code)
+            for code in codes
+            if self.normalize_dental_code(code)
+        )
+
+        if not normalized_codes:
+            return
+
+        advisory_blocks = []
+
+        for code in normalized_codes:
+            requirements = self.get_dental_advisory_requirements(code)
+            if not requirements:
+                continue
+
+            message = self.format_advisory_message(code, requirements)
+            advisory_blocks.append(message)
+            self.add_advisory_note(code, requirements)
+
+        if not advisory_blocks:
+            return
+
+        system_modal_info(
+            "Knowledge Article 56494 - Next Best Action",
+            "\n\n".join(advisory_blocks),
+        )
+
+    def format_advisory_message(self, code, requirements):
+        lines = [f"For code {code}, ask for the following information:", ""]
+        for item in requirements:
+            lines.append(f"- {item}")
+        return "\n".join(lines)
+
+    def add_advisory_note(self, code, requirements):
+        normalized = self.normalize_dental_code(code)
+        if not normalized:
+            return
+
+        existing_codes = {
+            note.get("code")
+            for note in self.current_advisory_notes
+        }
+
+        if normalized in existing_codes:
+            return
+
+        self.current_advisory_notes.append(
+            {
+                "code": normalized,
+                "requirements": list(requirements),
+            }
+        )
+
+    def build_advisory_section_for_output(self):
+        if not self.current_advisory_notes:
+            return ""
+
+        lines = ["Information to ask / document if applicable:"]
+
+        for note in self.current_advisory_notes:
+            code = note.get("code", "")
+            requirements = note.get("requirements", [])
+
+            lines.append("")
+            lines.append(f"{code}:")
+
+            for requirement in requirements:
+                lines.append(f"- {requirement}:")
+
+        return "\n".join(lines).strip()
+
+    def build_advisory_section_for_raw(self):
+        if not self.current_advisory_notes:
+            return "No dental advisory reminder for selected code(s)."
+
+        blocks = []
+
+        for note in self.current_advisory_notes:
+            blocks.append(self.format_advisory_message(note.get("code", ""), note.get("requirements", [])))
+
+        return "\n\n".join(blocks)
 
     # =========================
     # OUTPUT FORMAT
@@ -1279,14 +3651,18 @@ class OneViewWatcherApp:
             lines.append(f"{key}: {value}")
 
         lines.append("")
+        lines.append(f"Provider Concern: {self.provider_concern or 'Not selected'}")
+        lines.append(f"DOS: {self.get_claim_summary_dos()}")
+        lines.append(f"DCN: {claim_data.get('DCN', '') if claim_data.get('DCN') != 'Not found' else ''}")
+        lines.append(f"Claim Status: {claim_data.get('Claim Status', '') if claim_data.get('Claim Status') != 'Not found' else ''}")
+        lines.append(f"CLMT/CLM/PYMT: {claim_data.get('Claim Number', 'Not found')}")
         lines.append(f"Number of CPT Code: {len(self.current_service_lines)}")
+        lines.append(f"Selected Procedure: {self.get_selected_procedure_text()}")
 
-        if self.selected_procedure_mode == "ALL":
-            lines.append("Selected Procedure: All Procedures")
-        elif self.selected_service_line:
-            lines.append(f"Selected Procedure: {self.selected_service_line.get('Proc/Mod', 'Not found')}")
-        else:
-            lines.append("Selected Procedure: Not selected")
+        lines.append("")
+        lines.append("Dental Advisory Reminder")
+        lines.append("------------------------")
+        lines.append(self.build_advisory_section_for_raw())
 
         lines.append("")
         lines.append("Service Lines")
@@ -1299,7 +3675,8 @@ class OneViewWatcherApp:
                 parts = []
 
                 for col_name, _ in SERVICE_LINE_COLUMNS:
-                    parts.append(f"{col_name}: {row.get(col_name, '')}")
+                    value = row.get(col_name, "")
+                    parts.append(f"{col_name}: {value}")
 
                 lines.append(f"Service Line {index}: " + " | ".join(parts))
 
@@ -1330,52 +3707,116 @@ class OneViewWatcherApp:
 
         return str(value).strip()
 
+    def get_claim_summary_dos(self):
+        earliest = self.get_earliest_dos_from_service_lines()
+        return earliest if earliest else "Not found"
+
+    def get_earliest_dos_from_service_lines(self):
+        dated_values = []
+
+        for row in self.current_service_lines:
+            raw_dos = str(row.get("DoS", "") or "").strip()
+            parsed_date = self.parse_dos_date(raw_dos)
+
+            if parsed_date:
+                dated_values.append((parsed_date, raw_dos))
+
+        if not dated_values:
+            return ""
+
+        dated_values.sort(key=lambda item: item[0])
+        return dated_values[0][1]
+
+    def parse_dos_date(self, value):
+        text = str(value or "").strip()
+
+        if not text:
+            return None
+
+        for pattern in ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"]:
+            try:
+                return datetime.strptime(text, pattern)
+            except ValueError:
+                continue
+
+        return None
+
     def build_final_output(self, claim_data):
         claim_number = self.value_or_generic(claim_data.get("Claim Number"), "the selected claim")
-        tin = self.value_or_generic(claim_data.get("TIN"), "the available TIN")
-        servicing_provider = self.value_or_generic(claim_data.get("Servicing Provider"), "the servicing provider")
-        rendering_provider_npi = self.value_or_generic(
-            claim_data.get("Rendering Provider NPI"),
-            "the rendering provider NPI",
-        )
-        billing_provider = self.value_or_generic(claim_data.get("Billing Provider"), "the billing provider")
-        billing_npi = self.value_or_generic(claim_data.get("Billing NPI"), "the billing NPI")
-        fee_schedule_id = self.value_or_generic(claim_data.get("Fee Schedule ID"), "the fee schedule ID")
-        specialty = self.value_or_generic(claim_data.get("Specialty"), "the provider specialty")
-
         selected_procedure = self.get_selected_procedure_text()
         service_line_details = self.build_service_line_details_for_note()
-        total_details = self.build_total_details_for_note()
+        additional_notes = "Additional notes:"
+
+        dos = self.get_claim_summary_dos()
+        dcn = claim_data.get("DCN", "") if claim_data.get("DCN") != "Not found" else ""
+        claim_status = claim_data.get("Claim Status", "") if claim_data.get("Claim Status") != "Not found" else ""
 
         return (
+            f"DOS: {dos}\n"
+            f"DCN: {dcn}\n"
+            f"Claim Status: {claim_status}\n"
+            f"CLMT/CLM/PYMT: {claim_number}\n\n"
+            f"Provider concern: {self.provider_concern or 'Not selected'}\n\n"
             f"Reviewed claim {claim_number} in OneView for provider and service line information.\n\n"
-            f"Servicing provider is {servicing_provider}, specialty {specialty}, TIN {tin}. "
-            f"Rendering provider NPI is {rendering_provider_npi}. "
-            f"Billing provider is {billing_provider} with billing NPI {billing_npi}. "
-            f"Fee schedule ID is {fee_schedule_id}.\n\n"
             f"The caller inquired about {selected_procedure}. "
             f"There are {len(self.current_service_lines)} CPT code(s) available on the claim.\n\n"
             f"Service line information:\n"
             f"{service_line_details}\n\n"
-            f"Claim total:\n"
-            f"{total_details}\n\n"
-            f"Additional notes:"
+            f"{additional_notes}"
         )
 
     def get_selected_procedure_text(self):
         if self.selected_procedure_mode == "ALL":
             return "all available procedures"
 
-        if self.selected_service_line:
-            proc = self.selected_service_line.get("Proc/Mod", "").strip()
-            return proc if proc else "the selected procedure"
+        selected_codes = self.get_selected_procedure_codes()
+
+        if selected_codes:
+            return self.join_human_readable(selected_codes)
 
         return "the available claim information"
 
-    def build_service_line_details_for_note(self):
-        if self.selected_procedure_mode == "SINGLE" and self.selected_service_line:
-            return self.format_service_line_block(self.selected_service_line, 1)
+    def get_selected_procedure_codes(self):
+        if self.selected_procedure_mode == "ALL":
+            return self.unique_preserve_order(
+                self.get_display_proc_code(row)
+                for row in self.current_service_lines
+                if self.get_display_proc_code(row)
+            )
 
+        if self.selected_service_lines:
+            return self.unique_preserve_order(
+                self.get_display_proc_code(row)
+                for row in self.selected_service_lines
+                if self.get_display_proc_code(row)
+            )
+
+        if self.selected_service_line:
+            code = self.get_display_proc_code(self.selected_service_line)
+            return [code] if code else []
+
+        return []
+
+    def get_display_proc_code(self, row):
+        raw_proc = row.get("Proc/Mod", "") if isinstance(row, dict) else str(row or "")
+        normalized = self.normalize_dental_code(raw_proc)
+        return normalized if normalized else raw_proc.strip()
+
+    def join_human_readable(self, values):
+        items = [str(value).strip() for value in values if str(value).strip()]
+
+        if not items:
+            return ""
+
+        if len(items) == 1:
+            return items[0]
+
+        if len(items) == 2:
+            return f"{items[0]} and {items[1]}"
+
+        return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+    def build_service_line_details_for_note(self):
         if self.selected_procedure_mode == "ALL" and self.current_service_lines:
             blocks = []
 
@@ -1384,19 +3825,47 @@ class OneViewWatcherApp:
 
             return "\n\n".join(blocks)
 
+        if self.selected_service_lines:
+            blocks = []
+
+            for display_index, row in enumerate(self.selected_service_lines, start=1):
+                original_index = self.current_service_lines.index(row) + 1 if row in self.current_service_lines else display_index
+                blocks.append(self.format_service_line_block(row, original_index))
+
+            return "\n\n".join(blocks)
+
         return "No service line details were captured."
 
+    def get_display_proc_with_description(self, row):
+        raw_proc = str(row.get("Proc/Mod", "") if isinstance(row, dict) else row or "").strip()
+        code = self.normalize_dental_code(raw_proc)
+
+        if not raw_proc:
+            return code or "Not found"
+
+        description = re.sub(r"^\s*D?\d{4}\s*-\s*", "", raw_proc, flags=re.IGNORECASE).strip()
+
+        if code and description:
+            return f"{code} - {description}"
+
+        return code or raw_proc
+
     def format_service_line_block(self, row, index):
-        lines = []
-        proc = row.get("Proc/Mod", "").strip() or "Not found"
+        lines = [f"Service Line {index}"]
 
-        lines.append(f"Service Line {index} - Procedure {proc}")
+        field_order = [
+            ("Proc/Mod", self.get_display_proc_with_description(row)),
+            ("DoS", row.get("DoS", "")),
+            ("Charge", row.get("Charge", "")),
+            ("Ded", row.get("Ded", "")),
+            ("Balance", row.get("Balance", "")),
+            ("Patient Resp", row.get("Patient Resp", "")),
+        ]
 
-        for col_name, _ in SERVICE_LINE_COLUMNS:
-            value = row.get(col_name, "").strip()
-
+        for label, value in field_order:
+            value = str(value or "").strip()
             if value:
-                lines.append(f"{col_name}: {value}")
+                lines.append(f"{label}: {value}")
 
         return "\n".join(lines)
 
@@ -1418,14 +3887,17 @@ class OneViewWatcherApp:
         return "\n".join(lines)
 
     def handle_scraped_data(self, claim_data):
+        self.autofill_callers_information_from_claim(claim_data)
         extracted_text = self.format_extracted_data(claim_data)
         final_output_text = self.build_final_output(claim_data)
+        self.update_claim_status_display(claim_data)
 
         self.last_extracted_text = extracted_text
         self.last_final_output_text = final_output_text
-        self.last_clipboard_text = final_output_text
 
-        pyperclip.copy(final_output_text)
+        combined_copy_text = self.build_combined_final_copy_text(final_text=final_output_text)
+        self.last_clipboard_text = combined_copy_text
+        pyperclip.copy(combined_copy_text)
 
         self.set_text_box(self.extracted_data_box, extracted_text)
         self.set_text_box(self.final_output_box, final_output_text)
@@ -1443,8 +3915,10 @@ class OneViewWatcherApp:
             self.append_log("Total row not captured.")
 
         self.append_log("===============================")
-        self.append_log("Final Output copied to clipboard.")
-        self.append_log("You may edit the Final Output box, then use 📋 Copy Final / F2 to copy the edited text.")
+        self.append_log("Callers Information + Final Output prepared.")
+        self.append_log("Open Notepad and press F2 to finalize.")
+
+        self.set_status("Claim documentation generated and copied to clipboard.", "success")
 
     # =========================
     # CLOSE
