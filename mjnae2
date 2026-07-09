@@ -1,0 +1,1472 @@
+# ============================================================
+# Author: Juan Miguel Bugayong
+# Email: juanmiguel.bugayong@sagilityhealth.com
+# Date Created: 2026-05-16
+# Date Updated: 2026-05-16
+# 
+# List of pip
+# - python -m pip install selenium pyperclip pynput
+#
+# List of Updates:
+# - 2026-05-16: Initial creation of the Python script.
+# - Added CPT Codes Logic
+# - Fix force tab
+# - Fix minor Bug
+# ============================================================
+
+import ctypes
+import math
+import queue
+import re
+import threading
+import time
+import traceback
+import tkinter as tk
+from tkinter import scrolledtext
+
+import pyperclip
+from pynput import keyboard
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import (
+    NoSuchWindowException,
+    WebDriverException,
+    StaleElementReferenceException,
+    NoSuchElementException,
+    TimeoutException,
+)
+
+
+# =========================
+# CONFIG
+# =========================
+
+TARGET_URL = "https://oneview.digitaledge.cigna.com/"
+TARGET_DOMAIN = "oneview.digitaledge.cigna.com"
+TARGET_TITLE_KEYWORD = "Oneview - Claims"
+
+POLL_SECONDS = 1.0
+TABLE_WAIT_SECONDS = 8
+CLAIM_NUMBER_WAIT_SECONDS = 5
+HIGHLIGHT_COPY_DEBOUNCE_SECONDS = 0.7
+
+EDGE_DRIVER_PATH = r"\\internal.cigna.com\EUHF$\rep\OFFSHORE\HOME2$\C9K6FW\Desktop\Oneview Prototype\msedgedriver.exe"
+
+PAUSE_WHEN_ONEVIEW_NOT_ACTIVE = True
+
+FOREGROUND_BROWSER_KEYWORDS = [
+    "edge",
+]
+
+FOREGROUND_TITLE_KEYWORDS = [
+    "oneview",
+    "claims",
+    "cigna",
+]
+
+MAX_CPT_BUTTONS_PER_ROW = 5
+
+
+# =========================
+# CLAIM / PROVIDER XPATHS
+# =========================
+
+XPATH_TRIGGER_CLAIM_HEADER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/header/div[1]/div/div[1]/h2"
+
+XPATH_CLAIM_NUMBER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/header/div[1]/div/div[1]/div/span"
+
+XPATH_TIN_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[1]/div[1]"
+
+XPATH_SERVICING_PROV_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[1]/div[2]"
+
+XPATH_RENDERING_PROVIDER_NPI_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[2]/div[1]"
+
+XPATH_FEE_SCHED_ID_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[2]/div[2]"
+
+XPATH_SPECIALTY_PARENT = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[1]/div[3]"
+
+XPATH_BILLING_PROVIDER = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[4]/div/span"
+
+XPATH_BILLING_NPI = r"/html/body/cigna-root/cigna-root-view-wrapper/as-split/as-split-area[1]/cigna-ov-sidenav/div/div/div/main/cigna-claims-wrapper/cigna-claims-fr-wrapper/cigna-ov-sidenav/div/div/div/div/cigna-claim-details-wrapper/cigna-claim-details-medical/div/span/cigna-servicing-provider/div/div[3]/div[1]/span"
+
+
+SCRAPE_FIELDS = [
+    {"name": "Claim Number", "xpath": XPATH_CLAIM_NUMBER, "mode": "full_text"},
+    {"name": "TIN", "xpath": XPATH_TIN_PARENT, "mode": "direct_text"},
+    {"name": "Servicing Provider", "xpath": XPATH_SERVICING_PROV_PARENT, "mode": "direct_text"},
+    {"name": "Rendering Provider NPI", "xpath": XPATH_RENDERING_PROVIDER_NPI_PARENT, "mode": "direct_text"},
+    {"name": "Billing Provider", "xpath": XPATH_BILLING_PROVIDER, "mode": "full_text"},
+    {"name": "Billing NPI", "xpath": XPATH_BILLING_NPI, "mode": "full_text"},
+    {"name": "Fee Schedule ID", "xpath": XPATH_FEE_SCHED_ID_PARENT, "mode": "direct_text"},
+    {"name": "Specialty", "xpath": XPATH_SPECIALTY_PARENT, "mode": "direct_text"},
+]
+
+
+FIELD_LABEL_PREFIXES = [
+    "Claim Number",
+    "Claim",
+    "TIN",
+    "Tax ID",
+    "Tax Identification Number",
+    "Servicing Provider",
+    "Servicing Prov",
+    "Rendering Provider",
+    "Rendering Prov",
+    "Rendering Provider NPI",
+    "Billing Provider",
+    "Billing Prov",
+    "Billing NPI",
+    "NPI",
+    "Fee Schedule ID",
+    "Fee Sched ID",
+    "Specialty",
+]
+
+
+# =========================
+# SERVICE LINE TABLE COLUMNS
+# =========================
+
+SERVICE_LINE_COLUMNS = [
+    ("DoS", "value-startDoS"),
+    ("Serv Type", "value-serviceType.code"),
+    ("Proc/Mod", "value-procedureCode.code"),
+    ("APC Code", "value-apcCode.code"),
+    ("Units", "value-noOfUnits"),
+    ("TLC", "value-tlc"),
+    ("Charge", "value-chargeAmount"),
+    ("Not Cov", "value-notCoveredAmount"),
+    ("Allowed", "value-coveredAmount"),
+    ("Ded / Copay", "value-deductibleAmount"),
+    ("Balance", "value-balanceAmount"),
+    ("Plan Coins / Paid", "value-cignaBenefitPercentage"),
+    ("Patient Coins/Amt", "value-memberBenefitPercentage"),
+    ("Patient Resp", "value-patientRespAmount"),
+    ("Remark", "value-remarks"),
+    ("EHB Claim", "value-ehbClaimIndicator"),
+    ("Rate Diff Group", "value-rateDifferentialGroup"),
+    ("Rate Diff Type", "value-rateDifferentialType"),
+    ("Fee Schedule Indicator", "value-feeScheduleIndicator"),
+    ("Ovr / Flag", "value-override.code"),
+    ("Reimb", "value-hsaPaidAmount1"),
+]
+
+
+# =========================
+# WINDOWS MESSAGE BOX
+# =========================
+
+MB_OK = 0x00000000
+MB_YESNO = 0x00000004
+MB_ICONINFORMATION = 0x00000040
+MB_ICONQUESTION = 0x00000020
+MB_SETFOREGROUND = 0x00010000
+MB_TOPMOST = 0x00040000
+MB_SYSTEMMODAL = 0x00001000
+
+IDYES = 6
+
+
+def system_modal_yes_no(title, message):
+    flags = MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST | MB_SYSTEMMODAL
+    result = ctypes.windll.user32.MessageBoxW(None, message, title, flags)
+    return result == IDYES
+
+
+def system_modal_info(title, message):
+    flags = MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST | MB_SYSTEMMODAL
+    ctypes.windll.user32.MessageBoxW(None, message, title, flags)
+
+
+# =========================
+# APP
+# =========================
+
+class OneViewWatcherApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Claim Watcher")
+        self.root.geometry("560x665")
+        self.root.minsize(540, 600)
+        self.root.configure(bg="black")
+
+        self.driver = None
+        self.worker_thread = None
+        self.stop_event = threading.Event()
+
+        self.running = False
+
+        self.target_window_handle = None
+        self.last_claim_number = ""
+
+        self.current_service_lines = []
+        self.current_total_line = {}
+        self.selected_service_line = None
+        self.selected_procedure_mode = None
+
+        self.last_extracted_text = ""
+        self.last_final_output_text = ""
+        self.last_clipboard_text = ""
+
+        self.auto_copy_highlight_enabled = False
+        self.highlight_candidate_text = ""
+        self.highlight_candidate_time = 0.0
+        self.last_auto_copied_highlight = ""
+
+        self.hotkey_listener = None
+
+        self.build_ui()
+        self.start_global_hotkey()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    # =========================
+    # UI
+    # =========================
+
+    def build_ui(self):
+        main = tk.Frame(self.root, bg="black")
+        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        button_frame = tk.Frame(main, bg="black")
+        button_frame.pack(fill=tk.X, pady=(0, 4))
+
+        self.start_btn = tk.Button(
+            button_frame,
+            text="Start",
+            width=8,
+            bg="yellow",
+            fg="black",
+            command=self.start_bot,
+        )
+        self.start_btn.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.stop_btn = tk.Button(
+            button_frame,
+            text="Stop",
+            width=8,
+            bg="yellow",
+            fg="black",
+            command=self.stop_bot,
+            state=tk.DISABLED,
+        )
+        self.stop_btn.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.copy_btn = tk.Button(
+            button_frame,
+            text="📋 Copy Final / F2",
+            width=16,
+            bg="yellow",
+            fg="black",
+            command=lambda: self.copy_current_final_output("button"),
+        )
+        self.copy_btn.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.copy_raw_btn = tk.Button(
+            button_frame,
+            text="Copy Raw",
+            width=9,
+            bg="yellow",
+            fg="black",
+            command=self.copy_raw_result,
+        )
+        self.copy_raw_btn.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.auto_copy_btn = tk.Button(
+            button_frame,
+            text="Auto Copy: OFF",
+            width=14,
+            bg="yellow",
+            fg="black",
+            command=self.toggle_auto_copy_highlight,
+        )
+        self.auto_copy_btn.pack(side=tk.LEFT)
+
+        self.auto_copy_note = tk.Label(
+            main,
+            text=(
+                "Note: Auto Copy is OFF by default. When ON, highlighted OneView website text "
+                "automatically replaces your clipboard. Use 📋 Copy Final / F2 to copy your edited Final Output again."
+            ),
+            bg="black",
+            fg="#d9d9d9",
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=530,
+            font=("Segoe UI", 8),
+        )
+        self.auto_copy_note.pack(fill=tk.X, pady=(0, 6))
+
+        self.final_output_box = self.create_text_section(
+            parent=main,
+            title="Final Output",
+            border_color="#ff2f4f",
+            height=18,
+        )
+
+        self.extracted_data_box = self.create_text_section(
+            parent=main,
+            title="Extracted Data / Raw Fields",
+            border_color="#3957ff",
+            height=13,
+        )
+
+    def create_text_section(self, parent, title, border_color, height):
+        title_label = tk.Label(
+            parent,
+            text=title,
+            bg="black",
+            fg="white",
+            anchor="w",
+            font=("Segoe UI", 9, "bold"),
+        )
+        title_label.pack(fill=tk.X, pady=(3, 2))
+
+        border_frame = tk.Frame(parent, bg=border_color, padx=3, pady=3)
+        border_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 6))
+
+        text_widget = scrolledtext.ScrolledText(
+            border_frame,
+            height=height,
+            wrap=tk.WORD,
+            bg="white",
+            fg="black",
+            insertbackground="black",
+            font=("Consolas", 9),
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True)
+
+        return text_widget
+
+    def set_text_box(self, widget, text):
+        def update():
+            widget.delete("1.0", tk.END)
+            widget.insert(tk.END, text)
+
+        self.root.after(0, update)
+
+    def append_log(self, message):
+        timestamp = time.strftime("%H:%M:%S")
+        print(f"[{timestamp}] {message}", flush=True)
+
+    # =========================
+    # HOTKEY / COPY
+    # =========================
+
+    def start_global_hotkey(self):
+        def on_press(key):
+            try:
+                if key == keyboard.Key.f2:
+                    self.root.after(0, lambda: self.copy_current_final_output("F2"))
+            except Exception as e:
+                self.append_log(f"Hotkey error: {type(e).__name__}: {e}")
+
+        self.hotkey_listener = keyboard.Listener(on_press=on_press)
+        self.hotkey_listener.daemon = True
+        self.hotkey_listener.start()
+
+        self.append_log("Global hotkey enabled: F2")
+
+    def get_final_output_text_from_ui(self):
+        try:
+            return self.final_output_box.get("1.0", "end-1c").strip()
+        except Exception:
+            return ""
+
+    def get_raw_output_text_from_ui(self):
+        try:
+            return self.extracted_data_box.get("1.0", "end-1c").strip()
+        except Exception:
+            return ""
+
+    def copy_current_final_output(self, source="button"):
+        text = self.get_final_output_text_from_ui()
+
+        if not text:
+            system_modal_info("No Data", "No final output is available yet.")
+            return
+
+        pyperclip.copy(text)
+        self.last_final_output_text = text
+        self.last_clipboard_text = text
+
+        if source == "F2":
+            self.append_log("F2 pressed. Current Final Output copied to clipboard.")
+        else:
+            self.append_log("Current Final Output copied to clipboard.")
+
+    def copy_raw_result(self):
+        text = self.get_raw_output_text_from_ui()
+
+        if not text:
+            text = self.last_extracted_text.strip()
+
+        if not text:
+            system_modal_info("No Data", "No raw extracted data is available yet.")
+            return
+
+        pyperclip.copy(text)
+        self.append_log("Raw extracted data copied to clipboard.")
+
+    # =========================
+    # AUTO COPY HIGHLIGHT
+    # =========================
+
+    def toggle_auto_copy_highlight(self):
+        self.auto_copy_highlight_enabled = not self.auto_copy_highlight_enabled
+
+        self.highlight_candidate_text = ""
+        self.highlight_candidate_time = 0.0
+        self.last_auto_copied_highlight = ""
+
+        if self.auto_copy_highlight_enabled:
+            self.auto_copy_btn.config(text="Auto Copy: ON", bg="#99ff99")
+            note_state = "ON"
+        else:
+            self.auto_copy_btn.config(text="Auto Copy: OFF", bg="yellow")
+            note_state = "OFF"
+
+        self.auto_copy_note.config(
+            text=(
+                f"Note: Auto Copy is {note_state}. When ON, highlighted OneView website text "
+                f"automatically replaces your clipboard. Use 📋 Copy Final / F2 to copy your edited Final Output again."
+            )
+        )
+
+        self.append_log(f"Auto Copy Highlight toggled {note_state}.")
+
+    def clean_selected_text(self, value):
+        text = str(value or "")
+        text = text.replace("\xa0", " ")
+        text = text.replace("\r", "\n")
+        text = text.strip()
+
+        if not text:
+            return ""
+
+        lines = [
+            re.sub(r"[ \t]+", " ", line).strip()
+            for line in text.split("\n")
+            if line.strip()
+        ]
+
+        return "\n".join(lines).strip()
+
+    def monitor_auto_copy_highlight(self):
+        if not self.auto_copy_highlight_enabled:
+            return
+
+        try:
+            selected_text = self.driver.execute_script(
+                "return window.getSelection ? window.getSelection().toString() : '';"
+            )
+        except WebDriverException:
+            return
+
+        selected_text = self.clean_selected_text(selected_text)
+
+        if not selected_text:
+            self.highlight_candidate_text = ""
+            self.highlight_candidate_time = 0.0
+            return
+
+        if selected_text == self.last_auto_copied_highlight:
+            return
+
+        now = time.time()
+
+        if selected_text != self.highlight_candidate_text:
+            self.highlight_candidate_text = selected_text
+            self.highlight_candidate_time = now
+            return
+
+        if now - self.highlight_candidate_time < HIGHLIGHT_COPY_DEBOUNCE_SECONDS:
+            return
+
+        pyperclip.copy(selected_text)
+        self.last_auto_copied_highlight = selected_text
+        self.last_clipboard_text = selected_text
+
+        preview = selected_text.replace("\n", " ")
+        if len(preview) > 80:
+            preview = preview[:80] + "..."
+
+        self.append_log(f"Auto-copied highlighted text ({len(selected_text)} chars): {preview}")
+
+    # =========================
+    # START / STOP
+    # =========================
+
+    def start_bot(self):
+        if self.running:
+            return
+
+        self.running = True
+        self.stop_event.clear()
+
+        self.start_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL)
+
+        self.worker_thread = threading.Thread(
+            target=self.selenium_worker,
+            daemon=True,
+        )
+        self.worker_thread.start()
+
+        self.append_log("Starting Edge and opening OneView...")
+
+    def stop_bot(self):
+        self.stop_event.set()
+        self.running = False
+
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+
+        self.append_log("Stop requested.")
+
+    # =========================
+    # SELENIUM DRIVER
+    # =========================
+
+    def create_edge_driver(self):
+        from selenium.webdriver.edge.service import Service
+        import os
+
+        options = webdriver.EdgeOptions()
+        options.add_argument("--start-maximized")
+        options.add_experimental_option("detach", True)
+
+        if EDGE_DRIVER_PATH:
+            self.append_log(f"Using EdgeDriver path: {EDGE_DRIVER_PATH}")
+
+            if not os.path.exists(EDGE_DRIVER_PATH):
+                raise FileNotFoundError(f"EdgeDriver not found: {EDGE_DRIVER_PATH}")
+
+            service = Service(executable_path=EDGE_DRIVER_PATH)
+            return webdriver.Edge(service=service, options=options)
+
+        self.append_log("Using Selenium Manager for EdgeDriver.")
+        return webdriver.Edge(options=options)
+
+    def selenium_worker(self):
+        try:
+            self.driver = self.create_edge_driver()
+            self.driver.get(TARGET_URL)
+
+            self.target_window_handle = self.driver.current_window_handle
+
+            self.append_log("Edge opened.")
+            self.append_log("Original OneView tab saved as target tab.")
+            self.append_log("User may log in and work manually.")
+            self.append_log("Watching only the original OneView tab.")
+            self.append_log("New tabs will be ignored.")
+            self.append_log("Auto Copy Highlight is OFF by default.")
+
+            while not self.stop_event.is_set():
+                try:
+                    self.monitor_target_tab()
+                except Exception as e:
+                    self.append_log(f"Monitor loop warning: {type(e).__name__}: {e}")
+
+                time.sleep(POLL_SECONDS)
+
+        except Exception:
+            self.append_log("Fatal error:")
+            self.append_log(traceback.format_exc())
+
+        finally:
+            self.running = False
+            self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+
+    # =========================
+    # FOCUS DETECTION
+    # =========================
+
+    def get_foreground_window_title(self):
+        try:
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buffer = ctypes.create_unicode_buffer(length + 1)
+
+            ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
+
+            return buffer.value.strip()
+
+        except Exception:
+            return ""
+
+    def is_oneview_foreground(self):
+        if not PAUSE_WHEN_ONEVIEW_NOT_ACTIVE:
+            return True
+
+        title = self.get_foreground_window_title().lower()
+
+        if not title:
+            return False
+
+        browser_match = any(
+            keyword.lower() in title
+            for keyword in FOREGROUND_BROWSER_KEYWORDS
+        )
+
+        page_match = any(
+            keyword.lower() in title
+            for keyword in FOREGROUND_TITLE_KEYWORDS
+        )
+
+        return browser_match and page_match
+
+    # =========================
+    # MONITORING - SINGLE TARGET TAB MODE
+    # =========================
+
+    def monitor_target_tab(self):
+        if not self.driver:
+            return
+
+        if not self.target_window_handle:
+            return
+
+        if not self.is_oneview_foreground():
+            return
+
+        try:
+            handles = self.driver.window_handles
+        except WebDriverException:
+            return
+
+        if self.target_window_handle not in handles:
+            self.append_log("Target OneView tab was closed. Stop and run again if needed.")
+            self.stop_event.set()
+            return
+
+        try:
+            self.driver.switch_to.window(self.target_window_handle)
+        except NoSuchWindowException:
+            self.append_log("Target OneView tab no longer exists.")
+            self.stop_event.set()
+            return
+
+        if not self.is_target_tab():
+            return
+
+        self.monitor_auto_copy_highlight()
+
+        trigger_text = self.get_text_if_exists(
+            xpath=XPATH_TRIGGER_CLAIM_HEADER,
+            mode="full_text",
+            field_name="Claim Header",
+        )
+
+        if not trigger_text:
+            return
+
+        if trigger_text.strip().lower() == "details":
+            self.append_log("Header is still DETAILS. Waiting for real claim number.")
+
+        claim_number = self.wait_for_valid_claim_number()
+
+        if not claim_number:
+            self.append_log("Claim header detected, but claim number is not ready yet. Skipping this loop.")
+            return
+
+        current_claim_key = claim_number.strip()
+        is_first_run = self.last_claim_number == ""
+
+        if not is_first_run and current_claim_key == self.last_claim_number:
+            return
+
+        previous_claim = self.last_claim_number
+        self.last_claim_number = current_claim_key
+
+        if is_first_run:
+            self.append_log(f"First claim detected: {current_claim_key}")
+
+            confirm_message = (
+                f"Detected claim:\n\n"
+                f"{trigger_text}\n\n"
+                f"Claim Number: {claim_number}\n\n"
+                f"Is this the correct claim?"
+            )
+        else:
+            self.append_log(f"New claim detected: {current_claim_key}")
+
+            confirm_message = (
+                f"A different claim was detected.\n\n"
+                f"Previous Claim:\n{previous_claim}\n\n"
+                f"Current Claim:\n{current_claim_key}\n\n"
+                f"Header:\n{trigger_text}\n\n"
+                f"Do you want to extract this claim?"
+            )
+
+        confirmed = system_modal_yes_no("Confirm Claim", confirm_message)
+
+        if confirmed:
+            self.append_log("User confirmed claim. Extracting...")
+            self.process_confirmed_claim()
+        else:
+            self.append_log("User selected No. Continuing watcher...")
+
+    def is_target_tab(self):
+        try:
+            url = self.driver.current_url or ""
+            title = self.driver.title or ""
+
+            if TARGET_DOMAIN.lower() in url.lower():
+                return True
+
+            if TARGET_TITLE_KEYWORD.lower() in title.lower():
+                return True
+
+            return False
+
+        except WebDriverException:
+            return False
+
+    def safe_current_url(self):
+        try:
+            return self.driver.current_url
+        except WebDriverException:
+            return ""
+
+    def is_valid_claim_number(self, value):
+        if not value:
+            return False
+
+        text = str(value).strip()
+        digits_only = re.sub(r"\D", "", text)
+
+        return len(digits_only) >= 8
+
+    def wait_for_valid_claim_number(self):
+        end_time = time.time() + CLAIM_NUMBER_WAIT_SECONDS
+
+        while time.time() < end_time:
+            claim_number = self.get_text_if_exists(
+                xpath=XPATH_CLAIM_NUMBER,
+                mode="full_text",
+                field_name="Claim Number",
+            )
+
+            if self.is_valid_claim_number(claim_number):
+                return claim_number.strip()
+
+            time.sleep(0.5)
+
+        return ""
+
+    # =========================
+    # MAIN CLAIM PROCESS
+    # =========================
+
+    def process_confirmed_claim(self):
+        self.current_service_lines = []
+        self.current_total_line = {}
+        self.selected_service_line = None
+        self.selected_procedure_mode = None
+
+        claim_data = self.scrape_claim_data()
+
+        service_lines, total_line = self.scrape_service_line_table()
+        self.current_service_lines = service_lines
+        self.current_total_line = total_line
+
+        self.append_log(f"Service lines detected: {len(self.current_service_lines)}")
+
+        if self.current_total_line:
+            self.append_log("Total row detected and stored separately.")
+        else:
+            self.append_log("Total row not found.")
+
+        if self.current_service_lines:
+            selection = self.ask_procedure_selection_threadsafe(self.current_service_lines)
+
+            if selection is None:
+                self.append_log("Procedure selection cancelled. No final output created.")
+                return
+
+            if selection == "ALL":
+                self.selected_procedure_mode = "ALL"
+                self.selected_service_line = None
+                self.append_log("User selected: All Procedures")
+            else:
+                self.selected_procedure_mode = "SINGLE"
+                self.selected_service_line = self.current_service_lines[selection]
+                proc = self.selected_service_line.get("Proc/Mod", "Unknown")
+                self.append_log(f"User selected procedure: {proc}")
+        else:
+            self.selected_procedure_mode = "ALL"
+            self.selected_service_line = None
+            self.append_log("No service lines found. CPT popup skipped.")
+
+            system_modal_info(
+                "No CPT Rows Detected",
+                "No CPT/service line rows were detected from the table.\n\n"
+                "The claim/provider data will still be captured, but the procedure selection popup was skipped."
+            )
+
+        self.handle_scraped_data(claim_data)
+
+    # =========================
+    # CUSTOM PROCEDURE POPUP
+    # =========================
+
+    def ask_procedure_selection_threadsafe(self, service_lines):
+        result_queue = queue.Queue(maxsize=1)
+
+        def show_popup():
+            popup = tk.Toplevel(self.root)
+            popup.title("Select Procedure")
+            popup.configure(bg="white")
+            popup.attributes("-topmost", True)
+            popup.resizable(False, False)
+
+            popup.grab_set()
+
+            title_label = tk.Label(
+                popup,
+                text="Which procedure is the caller inquiring?",
+                bg="white",
+                fg="black",
+                font=("Segoe UI", 11, "bold"),
+            )
+            title_label.pack(padx=15, pady=(15, 5))
+
+            count_label = tk.Label(
+                popup,
+                text=f"Number of CPT Code: {len(service_lines)}",
+                bg="white",
+                fg="black",
+                font=("Segoe UI", 10),
+            )
+            count_label.pack(padx=15, pady=(0, 10))
+
+            button_area = tk.Frame(popup, bg="white")
+            button_area.pack(padx=15, pady=(0, 12))
+
+            def choose(value):
+                if result_queue.empty():
+                    result_queue.put(value)
+
+                try:
+                    popup.grab_release()
+                except Exception:
+                    pass
+
+                popup.destroy()
+
+            for idx, row in enumerate(service_lines):
+                proc = row.get("Proc/Mod", "").strip() or f"Line {idx + 1}"
+
+                row_index = idx // MAX_CPT_BUTTONS_PER_ROW
+                col_index = idx % MAX_CPT_BUTTONS_PER_ROW
+
+                btn = tk.Button(
+                    button_area,
+                    text=proc,
+                    width=14,
+                    bg="#f0f0f0",
+                    fg="black",
+                    command=lambda i=idx: choose(i),
+                )
+                btn.grid(row=row_index, column=col_index, padx=4, pady=4)
+
+            action_frame = tk.Frame(popup, bg="white")
+            action_frame.pack(padx=15, pady=(0, 15))
+
+            all_btn = tk.Button(
+                action_frame,
+                text="All Procedures",
+                width=18,
+                bg="yellow",
+                fg="black",
+                command=lambda: choose("ALL"),
+            )
+            all_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+            cancel_btn = tk.Button(
+                action_frame,
+                text="Cancel",
+                width=14,
+                command=lambda: choose(None),
+            )
+            cancel_btn.pack(side=tk.LEFT)
+
+            rows_needed = max(1, math.ceil(len(service_lines) / MAX_CPT_BUTTONS_PER_ROW))
+            cols_needed = min(MAX_CPT_BUTTONS_PER_ROW, max(1, len(service_lines)))
+
+            estimated_width = max(420, cols_needed * 125)
+            estimated_height = 155 + (rows_needed * 43)
+
+            popup.geometry(f"{estimated_width}x{estimated_height}")
+
+            popup.update_idletasks()
+
+            screen_width = popup.winfo_screenwidth()
+            screen_height = popup.winfo_screenheight()
+
+            x = int((screen_width / 2) - (popup.winfo_width() / 2))
+            y = int((screen_height / 2) - (popup.winfo_height() / 2))
+
+            popup.geometry(f"+{x}+{y}")
+            popup.lift()
+            popup.focus_force()
+
+            try:
+                popup.attributes("-topmost", True)
+                popup.after(500, lambda: popup.attributes("-topmost", True))
+            except Exception:
+                pass
+
+            popup.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+
+        self.root.after(0, show_popup)
+        return result_queue.get()
+
+    # =========================
+    # CLAIM / PROVIDER SCRAPING
+    # =========================
+
+    def get_text_if_exists(self, xpath, mode="full_text", field_name=""):
+        try:
+            elements = self.driver.find_elements(By.XPATH, xpath)
+
+            if not elements:
+                return ""
+
+            element = elements[0]
+
+            if not element.is_displayed():
+                return ""
+
+            if mode == "direct_text":
+                raw_text = self.driver.execute_script(
+                    """
+                    const element = arguments[0];
+
+                    const directText = Array.from(element.childNodes)
+                        .filter(node => node.nodeType === Node.TEXT_NODE)
+                        .map(node => node.textContent)
+                        .join("\\n")
+                        .trim();
+
+                    if (directText) {
+                        return directText;
+                    }
+
+                    return element.innerText || element.textContent || "";
+                    """,
+                    element,
+                )
+            else:
+                raw_text = element.text.strip()
+
+                if not raw_text:
+                    raw_text = self.driver.execute_script(
+                        "return arguments[0].innerText || arguments[0].textContent || '';",
+                        element,
+                    )
+
+            cleaned = self.clean_extracted_value(
+                raw_text=str(raw_text or ""),
+                field_name=field_name,
+            )
+
+            return cleaned
+
+        except (
+            StaleElementReferenceException,
+            NoSuchElementException,
+            WebDriverException,
+        ):
+            return ""
+
+    def clean_extracted_value(self, raw_text, field_name=""):
+        text = str(raw_text or "")
+        text = text.replace("\xa0", " ")
+        text = text.replace("\r", "\n")
+        text = text.strip()
+
+        if not text:
+            return ""
+
+        lines = [
+            re.sub(r"[ \t]+", " ", line).strip()
+            for line in text.split("\n")
+            if line.strip()
+        ]
+
+        if not lines:
+            return ""
+
+        cleaned_lines = []
+
+        for line in lines:
+            current = line.strip()
+            current_lower = current.lower().strip(" :")
+
+            exact_label = any(
+                current_lower == label.lower().strip(" :")
+                for label in FIELD_LABEL_PREFIXES
+            )
+
+            if exact_label:
+                continue
+
+            for label in sorted(FIELD_LABEL_PREFIXES, key=len, reverse=True):
+                pattern = rf"^\s*{re.escape(label)}\s*:?\s*"
+                current = re.sub(pattern, "", current, flags=re.IGNORECASE).strip()
+
+            if current:
+                cleaned_lines.append(current)
+
+        text = " ".join(cleaned_lines).strip()
+
+        if not text:
+            return ""
+
+        for label in sorted(FIELD_LABEL_PREFIXES, key=len, reverse=True):
+            pattern = rf"^\s*{re.escape(label)}\s*:?\s*"
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+        field_lower = field_name.lower().strip()
+
+        if field_lower == "specialty":
+            text = re.sub(r"^\s*specialty\s*:?\s*", "", text, flags=re.IGNORECASE).strip()
+
+        if field_lower == "tin":
+            text = re.sub(r"^\s*tin\s*:?\s*", "", text, flags=re.IGNORECASE).strip()
+
+        if "npi" in field_lower:
+            text = re.sub(
+                r"^\s*(rendering provider npi|billing npi|npi)\s*:?\s*",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        if field_lower == "servicing provider":
+            text = re.sub(
+                r"^\s*(servicing provider|servicing prov)\s*:?\s*",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        if field_lower == "billing provider":
+            text = re.sub(
+                r"^\s*(billing provider|billing prov)\s*:?\s*",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        if field_lower == "fee schedule id":
+            text = re.sub(
+                r"^\s*(fee schedule id|fee sched id)\s*:?\s*",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        text = re.sub(r"\s+", " ", text).strip()
+
+        return text
+
+    def scrape_claim_data(self):
+        data = {}
+
+        for field in SCRAPE_FIELDS:
+            field_name = field["name"]
+            xpath = field["xpath"]
+            mode = field["mode"]
+
+            value = self.get_text_if_exists(
+                xpath=xpath,
+                mode=mode,
+                field_name=field_name,
+            )
+
+            data[field_name] = value if value else "Not found"
+
+        return data
+
+    # =========================
+    # SERVICE LINE TABLE SCRAPING
+    # =========================
+
+    def scrape_service_line_table(self):
+        service_lines = []
+        total_line = {}
+
+        try:
+            self.append_log("Waiting for visible service line rows...")
+
+            end_time = time.time() + TABLE_WAIT_SECONDS
+
+            while time.time() < end_time:
+                has_rows = self.driver.execute_script(
+                    """
+                    return document.querySelectorAll(
+                        'cigna-service-line tr td[data-test-id="value-startDoS"]'
+                    ).length > 0;
+                    """
+                )
+
+                if has_rows:
+                    break
+
+                time.sleep(0.5)
+
+            else:
+                self.append_log("Table scrape warning: visible service line rows did not load before timeout.")
+                return service_lines, total_line
+
+            rows_data = self.driver.execute_script(
+                """
+                const columns = arguments[0];
+
+                function cleanText(value) {
+                    return (value || "")
+                        .replace(/\\u00a0/g, " ")
+                        .replace(/\\s+/g, " ")
+                        .trim();
+                }
+
+                function isVisible(element) {
+                    if (!element) return false;
+
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== "none" &&
+                        style.visibility !== "hidden"
+                    );
+                }
+
+                const rows = Array.from(
+                    document.querySelectorAll("cigna-service-line tr")
+                );
+
+                const output = [];
+
+                for (const row of rows) {
+                    if (!isVisible(row)) {
+                        continue;
+                    }
+
+                    const rowData = {};
+
+                    for (const pair of columns) {
+                        const columnName = pair[0];
+                        const testId = pair[1];
+
+                        const cell = row.querySelector(
+                            'td[data-test-id="' + testId + '"]'
+                        );
+
+                        rowData[columnName] = cell
+                            ? cleanText(cell.innerText || cell.textContent)
+                            : "";
+                    }
+
+                    const hasAnyValue = Object.values(rowData).some(
+                        value => cleanText(value) !== ""
+                    );
+
+                    if (hasAnyValue) {
+                        output.push(rowData);
+                    }
+                }
+
+                return output;
+                """,
+                SERVICE_LINE_COLUMNS,
+            )
+
+            self.append_log(f"Visible service line rows found by JS: {len(rows_data)}")
+
+            for row_data in rows_data:
+                cleaned_row = {}
+
+                for col_name, _ in SERVICE_LINE_COLUMNS:
+                    raw_value = row_data.get(col_name, "")
+                    cleaned_row[col_name] = self.clean_table_cell_text(raw_value, col_name)
+
+                if self.is_blank_service_line(cleaned_row):
+                    continue
+
+                dos_value = cleaned_row.get("DoS", "").strip().lower()
+                proc_value = cleaned_row.get("Proc/Mod", "").strip()
+
+                if dos_value == "total":
+                    total_line = cleaned_row
+                    continue
+
+                if proc_value:
+                    service_lines.append(cleaned_row)
+
+            self.append_log(f"CPT/service rows found: {len(service_lines)}")
+
+            if total_line:
+                self.append_log("Total row found by service line scan.")
+            else:
+                self.append_log("Total row not found by service line scan.")
+
+            return service_lines, total_line
+
+        except TimeoutException:
+            self.append_log("Table scrape warning: visible service line rows did not load before timeout.")
+            return service_lines, total_line
+
+        except Exception as e:
+            self.append_log(f"Table scrape warning: {type(e).__name__}: {e}")
+            return service_lines, total_line
+
+    def clean_table_cell_text(self, raw_text, col_name=""):
+        text = str(raw_text or "")
+        text = text.replace("\xa0", " ")
+        text = text.replace("\r", "\n")
+        text = text.strip()
+
+        if not text:
+            return ""
+
+        lines = [
+            re.sub(r"[ \t]+", " ", line).strip()
+            for line in text.split("\n")
+            if line.strip()
+        ]
+
+        text = " ".join(lines)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        if col_name == "Proc/Mod":
+            text = re.sub(r"\s*-\s*", "-", text)
+
+        if col_name == "Ded / Copay":
+            text = re.sub(r"\s*/\s*", " / ", text)
+
+        if col_name in ["Plan Coins / Paid", "Patient Coins/Amt"]:
+            text = re.sub(r"\s*=\s*", " = ", text)
+
+        return text.strip()
+
+    def is_blank_service_line(self, row_data):
+        for value in row_data.values():
+            if str(value or "").strip():
+                return False
+
+        return True
+
+    # =========================
+    # OUTPUT FORMAT
+    # =========================
+
+    def format_extracted_data(self, claim_data):
+        lines = []
+
+        lines.append("Claim / Provider Information")
+        lines.append("----------------------------")
+
+        for key, value in claim_data.items():
+            lines.append(f"{key}: {value}")
+
+        lines.append("")
+        lines.append(f"Number of CPT Code: {len(self.current_service_lines)}")
+
+        if self.selected_procedure_mode == "ALL":
+            lines.append("Selected Procedure: All Procedures")
+        elif self.selected_service_line:
+            lines.append(f"Selected Procedure: {self.selected_service_line.get('Proc/Mod', 'Not found')}")
+        else:
+            lines.append("Selected Procedure: Not selected")
+
+        lines.append("")
+        lines.append("Service Lines")
+        lines.append("-------------")
+
+        if not self.current_service_lines:
+            lines.append("No service line data found.")
+        else:
+            for index, row in enumerate(self.current_service_lines, start=1):
+                parts = []
+
+                for col_name, _ in SERVICE_LINE_COLUMNS:
+                    parts.append(f"{col_name}: {row.get(col_name, '')}")
+
+                lines.append(f"Service Line {index}: " + " | ".join(parts))
+
+        lines.append("")
+        lines.append("Total")
+        lines.append("-----")
+
+        if self.current_total_line:
+            total_parts = []
+
+            for col_name, _ in SERVICE_LINE_COLUMNS:
+                value = self.current_total_line.get(col_name, "")
+                if value:
+                    total_parts.append(f"{col_name}: {value}")
+
+            lines.append(" | ".join(total_parts))
+        else:
+            lines.append("Total row not found.")
+
+        return "\n".join(lines)
+
+    def value_or_generic(self, value, generic):
+        if not value:
+            return generic
+
+        if str(value).strip().lower() == "not found":
+            return generic
+
+        return str(value).strip()
+
+    def build_final_output(self, claim_data):
+        claim_number = self.value_or_generic(claim_data.get("Claim Number"), "the selected claim")
+        tin = self.value_or_generic(claim_data.get("TIN"), "the available TIN")
+        servicing_provider = self.value_or_generic(claim_data.get("Servicing Provider"), "the servicing provider")
+        rendering_provider_npi = self.value_or_generic(
+            claim_data.get("Rendering Provider NPI"),
+            "the rendering provider NPI",
+        )
+        billing_provider = self.value_or_generic(claim_data.get("Billing Provider"), "the billing provider")
+        billing_npi = self.value_or_generic(claim_data.get("Billing NPI"), "the billing NPI")
+        fee_schedule_id = self.value_or_generic(claim_data.get("Fee Schedule ID"), "the fee schedule ID")
+        specialty = self.value_or_generic(claim_data.get("Specialty"), "the provider specialty")
+
+        selected_procedure = self.get_selected_procedure_text()
+        service_line_details = self.build_service_line_details_for_note()
+        total_details = self.build_total_details_for_note()
+
+        return (
+            f"Reviewed claim {claim_number} in OneView for provider and service line information.\n\n"
+            f"Servicing provider is {servicing_provider}, specialty {specialty}, TIN {tin}. "
+            f"Rendering provider NPI is {rendering_provider_npi}. "
+            f"Billing provider is {billing_provider} with billing NPI {billing_npi}. "
+            f"Fee schedule ID is {fee_schedule_id}.\n\n"
+            f"The caller inquired about {selected_procedure}. "
+            f"There are {len(self.current_service_lines)} CPT code(s) available on the claim.\n\n"
+            f"Service line information:\n"
+            f"{service_line_details}\n\n"
+            f"Claim total:\n"
+            f"{total_details}\n\n"
+            f"Additional notes:"
+        )
+
+    def get_selected_procedure_text(self):
+        if self.selected_procedure_mode == "ALL":
+            return "all available procedures"
+
+        if self.selected_service_line:
+            proc = self.selected_service_line.get("Proc/Mod", "").strip()
+            return proc if proc else "the selected procedure"
+
+        return "the available claim information"
+
+    def build_service_line_details_for_note(self):
+        if self.selected_procedure_mode == "SINGLE" and self.selected_service_line:
+            return self.format_service_line_block(self.selected_service_line, 1)
+
+        if self.selected_procedure_mode == "ALL" and self.current_service_lines:
+            blocks = []
+
+            for index, row in enumerate(self.current_service_lines, start=1):
+                blocks.append(self.format_service_line_block(row, index))
+
+            return "\n\n".join(blocks)
+
+        return "No service line details were captured."
+
+    def format_service_line_block(self, row, index):
+        lines = []
+        proc = row.get("Proc/Mod", "").strip() or "Not found"
+
+        lines.append(f"Service Line {index} - Procedure {proc}")
+
+        for col_name, _ in SERVICE_LINE_COLUMNS:
+            value = row.get(col_name, "").strip()
+
+            if value:
+                lines.append(f"{col_name}: {value}")
+
+        return "\n".join(lines)
+
+    def build_total_details_for_note(self):
+        if not self.current_total_line:
+            return "Total row was not available."
+
+        lines = []
+
+        for col_name, _ in SERVICE_LINE_COLUMNS:
+            value = self.current_total_line.get(col_name, "").strip()
+
+            if value:
+                lines.append(f"{col_name}: {value}")
+
+        if not lines:
+            return "Total row was available but no total values were captured."
+
+        return "\n".join(lines)
+
+    def handle_scraped_data(self, claim_data):
+        extracted_text = self.format_extracted_data(claim_data)
+        final_output_text = self.build_final_output(claim_data)
+
+        self.last_extracted_text = extracted_text
+        self.last_final_output_text = final_output_text
+        self.last_clipboard_text = final_output_text
+
+        pyperclip.copy(final_output_text)
+
+        self.set_text_box(self.extracted_data_box, extracted_text)
+        self.set_text_box(self.final_output_box, final_output_text)
+
+        self.append_log("===== CLAIM DATA CAPTURED =====")
+
+        for key, value in claim_data.items():
+            self.append_log(f"{key}: {value}")
+
+        self.append_log(f"CPT rows captured: {len(self.current_service_lines)}")
+
+        if self.current_total_line:
+            self.append_log("Total row captured.")
+        else:
+            self.append_log("Total row not captured.")
+
+        self.append_log("===============================")
+        self.append_log("Final Output copied to clipboard.")
+        self.append_log("You may edit the Final Output box, then use 📋 Copy Final / F2 to copy the edited text.")
+
+    # =========================
+    # CLOSE
+    # =========================
+
+    def on_close(self):
+        self.stop_event.set()
+
+        try:
+            if self.hotkey_listener:
+                self.hotkey_listener.stop()
+        except Exception:
+            pass
+
+        self.root.destroy()
+
+
+def main():
+    root = tk.Tk()
+    OneViewWatcherApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
